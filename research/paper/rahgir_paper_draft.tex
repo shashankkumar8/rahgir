@@ -1,0 +1,158 @@
+\documentclass[10pt,conference]{IEEEtran}
+\usepackage{cite}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{url}
+\usepackage{graphicx}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\title{Evidence-Aware Multi-Objective Road-Trip Itinerary Planning for Culturally Informed Discovery in India}
+\author{Shashank Kumar\\Department of Computer Science and Engineering\\ABES Engineering College, Ghaziabad, India}
+\begin{document}
+\maketitle
+\begin{abstract}
+Inter-city road-trip discovery is a constrained itinerary-selection problem: a traveller must choose route-adjacent points of interest (POIs) while respecting road-network detours, visit-time budgets, preferences, and incomplete source metadata. This paper presents Rahgir, an evidence-aware road-trip planning prototype that combines provider-adapted routing, route-corridor POI discovery, provenance retention, explicit uncertainty states, and Pareto itinerary selection. The selection problem is implemented as a binary six-objective NSGA-II search with route-progress ordering and hard feasibility constraints. A browser decision layer exposes distinct feasible route personas, an interactive discovery--efficiency preference, single-stop inclusion/exclusion explanations, and what-if recomputation over detour budget and departure time. We evaluate the optimizer on eight generated instances with twelve candidates each and five stochastic seeds, comparing it with nearest-feasible, distance-only, and weighted-greedy baselines. Across these synthetic fixtures, NSGA-II obtains mean three-objective Monte-Carlo hypervolume 0.2554 and six-objective IGD 0.1265; paired instance-level comparisons favour it over the simple baselines. These results are algorithm-fixture evidence only. They do not measure Indian road conditions, POI relevance, cultural authenticity, safety, or traveller satisfaction. The application explicitly abstains from road-safety scoring without validated segment-level data. \textbf{No live-provider route experiment, on-ground field validation, participant study, or safety validation is claimed.}
+\end{abstract}
+
+\begin{IEEEkeywords}
+Tourist trip design problem, orienteering problem, multi-objective optimisation, POI recommendation, route planning, provenance, uncertainty, India.
+\end{IEEEkeywords}
+
+\section{Introduction}
+Road navigation and itinerary discovery address related but distinct tasks. A road router estimates a path between an origin and destination; a discovery-oriented itinerary must additionally decide which route-adjacent places merit a detour and whether the resulting ordered visits remain feasible. The Tourist Trip Design Problem (TTDP) formalises the selection and ordering of POIs under preferences, travel costs, visit durations and time windows \cite{gavalas2014,ruizmeza2022}. The Orienteering Problem (OP) and its variants provide a natural optimisation foundation for selecting a rewarding subset of locations under a time budget \cite{gunawan2016}.
+
+Rahgir targets inter-city road journeys in India. Its intended product question is not merely ``what is the shortest path?'' but ``which mapped discoveries can be visited without violating the traveler's stated time and detour limits, and what evidence supports each suggestion?'' This raises two engineering requirements. First, the optimizer must use road-network travel costs and enforce constraints at the itinerary level rather than summing independent straight-line POI distances. Second, missing or sparse source data must remain visible as uncertainty instead of being transformed into confident statements.
+
+This paper makes the following bounded contributions: (i) an end-to-end, provider-adapter architecture for road-network route computation and route-corridor POI acquisition; (ii) a provenance-preserving candidate representation with distinct metadata-completeness and safety-evidence states; (iii) a constrained six-objective POI subset search based on NSGA-II \cite{deb2002}; and (iv) a reproducible evaluation protocol separating synthetic algorithm tests, live map-provider snapshots and human relevance judgments. These are implementation and evaluation contributions; the paper does not claim a new evolutionary algorithm.
+
+\section{Related Work}
+Gavalas et al. survey TTDP formulations, including user preference, POI attributes, travel distances, visit durations and opening times \cite{gavalas2014}. Gunawan et al. survey OP variants and applications, including tourist itinerary design and time-window variants \cite{gunawan2016}. A later systematic review by Ruiz-Meza and Montoya-Torres analyses 102 TTDP studies and identifies recurring models and solution techniques \cite{ruizmeza2022}. This literature establishes that itinerary selection under a time budget is a well-studied operations-research problem.
+
+Recent personalised itinerary work also explores POI pruning and more sophisticated search strategies. Halder et al. propose an MCTS-based personalised itinerary recommendation method with pruning and evaluate it on theme-park data \cite{halder2022}. Gasmi et al. study recommendation rules for personalised itineraries and compare multi-objective evolutionary methods including NSGA-II, SPEA2 and IBEA on geo-tagged tourist data \cite{gasmi2024}. POI recommendation surveys emphasise methods, evaluation and reproducibility concerns \cite{werneck2021}. Rahgir differs in application setting and engineering emphasis: road-corridor rather than intra-city-only POIs, road-network detour feasibility, provenance visibility, and abstention when safety evidence is missing. Whether this combination is sufficiently novel must be assessed through a formal systematic review and direct baselines.
+
+NSGA-II uses non-dominated sorting and elitist selection to approximate a Pareto front \cite{deb2002}. Performance indicators such as hypervolume and IGD require careful definition and interpretation; their limitations are discussed by Zitzler et al. \cite{zitzler2003}. Rahgir reports the metric reference set, objective normalisation and random seeds in its experiment artefacts.
+
+\section{System Overview}
+The system consists of a responsive browser client, FastAPI service, SQLite persistence for the local prototype, and provider adapters for geocoding, routing, and POI search. A planning request is processed as follows:
+\begin{enumerate}
+\item Resolve origin and destination to coordinates.
+\item Request road-network route geometry, duration and distance from the configured routing provider.
+\item Sample the route geometry and query POIs around route samples using the configured POI source.
+\item Filter and deduplicate POIs by source identifier and route-corridor distance.
+\item Request a road-network duration/distance matrix for origin, candidate POIs and destination.
+\item Apply candidate metadata mapping, preference features and supported opening-hour checks.
+\item Run the deterministic multi-objective optimizer and return feasible non-dominated alternatives with explanations.
+\item Calculate single-stop route-fit diagnostics for each mapped candidate and expose route-persona selection, an itinerary timeline, and parameterised what-if recomputation in the browser.
+\end{enumerate}
+
+The current implementation supports OSRM HTTP routing and an OpenRouteService directions/matrix adapter, with Nominatim and Overpass defaults for geocoding and POI discovery. The application uses an explicitly labelled synthetic walkthrough mode when selected; synthetic geometry and candidates are never represented as provider results. Public endpoints are development/research options, not a production availability guarantee. Source attribution, usage policies, and redistribution licences must be honoured.
+
+\section{Problem Formulation}
+Let $V=\{1,\ldots,n\}$ be route-corridor candidate POIs. Let nodes $0$ and $n+1$ denote origin and destination. A routing provider supplies directed travel-time matrix $T=(t_{ij})$ and distance matrix $D=(d_{ij})$. Binary variable $x_i$ indicates whether candidate $i$ is selected. The present version orders selected candidates by increasing route-progress projection $p_i\in[0,1]$, yielding an ordered list $\pi(x)$.
+
+Let $\tau_0$ be the direct provider travel time, $B_t$ the maximum additional driving time, $B_J$ the maximum total journey time, $s$ the planned duration per stop, and $K$ the stop cap. For an ordered selection $\pi=(i_1,\ldots,i_m)$:
+\begin{align}
+T(\pi) &= t_{0i_1}+\sum_{r=1}^{m-1}t_{i_ri_{r+1}}+t_{i_m,n+1},\\
+D(\pi) &= d_{0i_1}+\sum_{r=1}^{m-1}d_{i_ri_{r+1}}+d_{i_m,n+1},\\
+\Delta_t(\pi)&=\max(0,T(\pi)-\tau_0),\\
+J(\pi)&=T(\pi)+ms.
+\end{align}
+The hard constraints are $m\le K$, $\Delta_t(\pi)\le B_t$, and $J(\pi)\le B_J$. A POI is excluded when a supported opening-hours parser establishes that it is closed at the estimated arrival time. Unsupported opening-hours expressions are retained as unknown, not interpreted as open.
+
+For selected stops, the implementation computes the following objectives: maximise preference-weighted cultural relevance $f_1$, category diversity $f_2$, route-corridor category novelty proxy $f_3$, and mapped metadata completeness $f_6$; minimise additional driving time $f_4$ and additional distance $f_5$. All objectives are converted to minimisation form for NSGA-II:
+\begin{equation}
+\min \; \mathbf{F}(x)=(-f_1,-f_2,-f_3,\Delta_t(\pi),\Delta_d(\pi),-f_6).
+\end{equation}
+
+The novelty feature is defined only from category frequency within the current retrieved corridor candidate set; it is not global popularity. Metadata completeness is the fraction of selected OSM metadata fields present; it is not a probability of truth. Safety is not an optimisation objective in the current release because no validated road-segment ground-truth data source is connected.
+
+\section{Search Method}
+Each genome is a binary vector $x\in\{0,1\}^n$. The evaluation function returns a large penalty for a solution violating a hard constraint and otherwise returns the six-objective vector and itinerary metadata. NSGA-II performs non-dominated sorting, tournament selection, uniform crossover, bit-flip mutation and elitist environmental selection. The random seed, population size, number of generations and candidate cap are configurable and are included in experiment records.
+
+The current route-progress ordering significantly reduces the permutation search space, but it can miss better stop orderings that require backtracking. The implementation is therefore a constrained subset-selection heuristic, not a general solution to the full vehicle-routing problem. Future work should compare this approximation with full permutation-aware OP/TTDP algorithms, including GRASP, ILS, VNS and MCTS-based methods, using the same road matrix and constraints.
+
+\section{Evidence and Uncertainty}
+Each live POI retains its OSM object identifier, source URL, raw tags and retrieval timestamp. Provider-derived route metrics remain separate from LLM or narrative text. The interface distinguishes unknown opening hours from a supported open/closed determination. A metadata completeness score is shown only as data coverage. Community reports begin in a submitted state and do not automatically establish incident truth. A report can be marked verified only after an administrator records a supporting evidence URL; even then, it is an incident record, not a probability that a road is safe.
+
+When segment-level safety data are unavailable, Rahgir returns ``Insufficient safety data.'' Absence of incidents in an incomplete source is not treated as safety. The application is an informational trip-planning aid, not an emergency response or turn-by-turn navigation replacement.
+
+\section{Interactive Decision Support}
+The Pareto set is intentionally not collapsed to a single universal optimum. The browser presents distinct alternatives (e.g., Fastest, Culture-rich, Explorer and Food trail) when these correspond to different feasible itineraries. A discovery dial lets the traveller select the Balanced option from the already-feasible Pareto pool. Let $m_i$ denote the feature vector for Pareto solution $i$. The implementation forms a discovery term
+\begin{equation}
+D_i^{raw}=0.36 C_i+0.22 V_i+0.26 N_i+0.16 M_i,
+\end{equation}
+where $C_i$ is preference-weighted cultural relevance, $V_i$ category diversity, $N_i$ route-corridor category-rarity proxy and $M_i$ mapped metadata completeness. Both discovery and efficiency are min--max normalised across the current feasible pool. Efficiency is the mean of normalised inverse additional driving time and additional distance, denoted $E_i$. For user preference $\alpha\in[0,1]$, the Balanced selection is
+\begin{equation}
+i^*=\arg\max_{i\in\mathcal{P}}\left[\alpha\widehat{D}_i+(1-\alpha)\widehat{E}_i\right],
+\end{equation}
+where $\mathcal{P}$ contains only feasible non-dominated solutions. This is a post-optimisation decision policy, not a seventh objective or a new evolutionary algorithm; changing $\alpha$ cannot relax stop-count, detour, total-time or supported opening-hours constraints.
+
+For each candidate POI, a separate diagnostic computes the directed single-stop route through that POI and reports its detour, estimated arrival and supported opening-hours state. The UI distinguishes a hard single-stop blocker from an individually feasible place that was not selected in the complete itinerary. Individual feasibility is not equivalent to joint feasibility: the selected multi-stop sequence is evaluated as a whole and the selected route is rechecked by the routing provider.
+
+The what-if endpoint accepts a changed detour budget, discovery preference and optional departure timestamp. A new departure timestamp causes the planner to rebuild candidate arrival estimates and supported opening-hours checks. It does not simulate traffic, weather, sunlight, crowding or incidents; these variables remain unavailable in the current build unless an external provider is explicitly connected.
+
+The browser includes progressive advanced settings, travel-mood presets, route-persona cards, a route timeline, candidate filters, source links, an explicit synthetic-data warning, read-only sharing and PDF export. Automated browser smoke tests check core interactions and a 390-pixel mobile viewport. This is functional verification only; it is not a formal usability study or accessibility certification.
+
+\section{Implementation and Reproducibility}
+The prototype is implemented in Python/FastAPI with Pydantic validation, SQLAlchemy persistence, a JavaScript web client, Leaflet map display, and a custom seeded NSGA-II implementation. Synthetic demo fixtures are clearly marked and are not used in live planning. The experiment harness creates fixed synthetic instances and compares NSGA-II with nearest-feasible, distance-only and weighted-greedy methods. The exact Pareto reference set is enumerated over all $2^{12}$ subsets for each instance. The reported hypervolume is a 25,000-sample Monte-Carlo estimate on a fixed three-objective projection with reference point $(1,1,1)$; IGD is computed in six normalised objectives against the instance-specific exact front. For inference, the five optimizer seeds are averaged within each generated instance, so the independent unit is the instance ($n=8$), not the 40 repeated seed runs.
+
+\section{Synthetic Algorithm Evaluation}
+The synthetic benchmark uses eight independently generated problem instances ($n=12$ candidate POIs per instance). Each instance is held fixed across five NSGA-II seeds; population size is 64 and the number of generations is 60. The benchmark therefore contains 40 optimizer runs per algorithm. For each instance, an exact non-dominated reference front is constructed by enumerating all $2^{12}$ candidate subsets. The four methods are NSGA-II, nearest-feasible greedy selection, distance-only greedy selection, and a five-weight-set weighted-greedy approximation. All methods receive the same generated candidate data and feasibility function.
+
+Table~\ref{tab:synthetic-results} reports means across 40 instance-seed runs per method. NSGA-II has the highest mean three-objective hypervolume (0.2554) and lowest mean six-objective IGD (0.1265), while it also requires substantially more computation (627.262 ms per run on the recorded container). The simple greedy baselines are much faster but return smaller approximation sets. Figure~\ref{fig:hv} and Fig.~\ref{fig:igd} show instance-level distributions after averaging the five seeds inside each instance; each box therefore represents eight observations, not 40 independent observations.
+
+\begin{table}[t]
+\caption{Synthetic benchmark results (means over 40 runs per algorithm)}
+\label{tab:synthetic-results}
+\centering
+\scriptsize
+\setlength{\tabcolsep}{2.2pt}
+\begin{tabular}{lrrrr}
+\toprule
+Method & HV-3D & IGD-6D & ms/run & $|F|$\\
+\midrule
+Distance-only & 0.0547 & 0.4508 & 0.053 & 1.00\\
+Nearest-feasible & 0.1341 & 0.4410 & 0.061 & 1.00\\
+Weighted-greedy & 0.0968 & 0.4869 & 2.213 & 2.75\\
+NSGA-II & 0.2554 & 0.1265 & 627.262 & 57.88\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Paired comparisons are computed on eight per-instance means. A 10,000-resample cluster bootstrap gives an estimated hypervolume improvement of 0.1213 for NSGA-II over nearest-feasible selection (95\% interval [0.0984, 0.1486]) and 0.1586 over weighted-greedy (95\% interval [0.1359, 0.1795]). The corresponding IGD improvements are 0.3145 (95\% interval [0.2872, 0.3433]) and 0.3604 (95\% interval [0.3308, 0.3887]). Exact two-sided paired sign-flip tests return $p=0.007812$ for these comparisons. With only eight independent instances, the attainable exact p-value resolution is coarse; these results should be treated as a small controlled synthetic experiment, not general evidence of superiority. The synthetic generator and simple baselines may favour the selected objective structure, and the baselines are not state-of-the-art TTDP solvers.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{../results/paper_benchmark/figures/hypervolume_by_instance.png}
+\caption{Three-objective hypervolume by instance. Seed runs are averaged within each of eight instances. Higher is better.}
+\label{fig:hv}
+\end{figure}
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{../results/paper_benchmark/figures/igd_by_instance.png}
+\caption{Six-objective IGD by instance against exact synthetic reference fronts. Seed runs are averaged within each of eight instances. Lower is better.}
+\label{fig:igd}
+\end{figure}
+
+\subsection{Live-route and field validation status}
+Five intended live route cases are Ghaziabad--Etawah, Delhi--Agra, Delhi--Jaipur, Delhi--Mathura and Mumbai--Pune. Each successful run must retain provider name, timestamps, route geometry, distance, duration, POI identifiers, raw tags, retrieval time, road matrix, selected itinerary, objective vector, constraints and provider errors. The execution environment used for this prototype had no outbound network access; therefore, no live route or POI results were retrieved for these five routes. No on-ground route check, participant study, authoritative safety dataset, or field experiment has been performed. The five routes are test plans, not completed experiments.
+
+The synthetic benchmark ran on Python 3.13.5 in a Linux x86\_64 container exposing five vCPUs on an AMD EPYC 9V74 virtualised host. Reported runtime is environment-specific and should not be compared directly with measurements from other hardware. Raw per-run outputs, run parameters, summaries, plotting script and figures are included with the research artefacts.
+
+\section{Limitations}
+The current search fixes POI order by route progress rather than jointly optimising sequence and subset. The synthetic objective generator and three-objective hypervolume projection simplify a real travel problem; small candidate sets, eight independent instances, simple baselines and a synthetic data-generating process limit inference. The live workflow is limited by the coverage, freshness, licensing and availability of public data providers. OSM POI mapping is incomplete and uneven across regions. The opening-hours parser implements a deliberately limited syntax subset and returns unknown for unsupported formats. Preference features are hand-authored, not learned or validated through user studies. Category rarity is relative to a single candidate set and does not prove that a place is a hidden gem. Metadata completeness is not factual confidence. Safety evidence is intentionally not scored. Live routing has not been validated in this environment. Public demonstration endpoints are unsuitable as a production SLA. No user study or field observation has been conducted.
+
+\section{Conclusion and Future Work}
+Rahgir provides an evidence-aware prototype for route-corridor POI discovery and constrained multi-objective itinerary selection. Its principal research direction is a reproducible, geographically grounded evaluation of culturally relevant detours under road-network time constraints, with explicit data provenance and uncertainty abstention. Future work should add richer time-dependent routing, full sequence optimisation, validated Indian tourism and safety data, multilingual local knowledge with source verification, stronger TTDP baselines, a consented field/user study, and a formal evaluation of whether the interactive Pareto decision interface improves traveller understanding, trust and planning outcomes.
+
+\begin{thebibliography}{8}
+\bibitem{gavalas2014} D. Gavalas, C. Konstantopoulos, K. Mastakas, and G. Pantziou, ``A survey on algorithmic approaches for solving tourist trip design problems,'' \emph{Journal of Heuristics}, vol. 20, no. 3, pp. 291--328, 2014, doi: 10.1007/s10732-014-9242-5.
+\bibitem{deb2002} K. Deb, A. Pratap, S. Agarwal, and T. Meyarivan, ``A fast and elitist multiobjective genetic algorithm: NSGA-II,'' \emph{IEEE Transactions on Evolutionary Computation}, vol. 6, no. 2, pp. 182--197, 2002, doi: 10.1109/4235.996017.
+\bibitem{gunawan2016} A. Gunawan, H. C. Lau, and P. Vansteenwegen, ``Orienteering Problem: A survey of recent variants, solution approaches and applications,'' \emph{European Journal of Operational Research}, vol. 255, no. 2, pp. 315--332, 2016, doi: 10.1016/j.ejor.2016.04.059.
+\bibitem{ruizmeza2022} J. L. Ruiz-Meza and J. R. Montoya-Torres, ``A systematic literature review for the tourist trip design problem: Extensions, solution techniques and future research lines,'' \emph{Operations Research Perspectives}, vol. 9, Art. no. 100228, 2022, doi: 10.1016/j.orp.2022.100228.
+\bibitem{halder2022} S. Halder, K. H. Lim, J. Chan, et al., ``Efficient itinerary recommendation via personalized POI selection and pruning,'' \emph{Knowledge and Information Systems}, vol. 64, pp. 963--993, 2022, doi: 10.1007/s10115-021-01648-3.
+\bibitem{gasmi2024} I. Gasmi, M. Soui, K. Barhoumi, and M. Abed, ``Recommendation rules to personalize itineraries for tourists in an unfamiliar city,'' \emph{Applied Soft Computing}, vol. 150, Art. no. 111084, 2024, doi: 10.1016/j.asoc.2023.111084.
+\bibitem{werneck2021} H. Werneck, N. Silva, M. Viana, A. C. M. Pereira, F. Mour\~ao, and L. Rocha, ``Points of Interest recommendations: Methods, evaluation, and future directions,'' \emph{Information Systems}, vol. 101, Art. no. 101789, 2021, doi: 10.1016/j.is.2021.101789.
+\bibitem{zitzler2003} E. Zitzler, L. Thiele, M. Laumanns, C. M. Fonseca, and V. Grunert da Fonseca, ``Performance assessment of multiobjective optimizers: An analysis and review,'' \emph{IEEE Transactions on Evolutionary Computation}, vol. 7, no. 2, pp. 117--132, 2003, doi: 10.1109/TEVC.2003.810758.
+\end{thebibliography}
+\end{document}

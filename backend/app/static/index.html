@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#172528" />
+  <meta name="description" content="Rahgir — evidence-aware road-trip discovery and itinerary intelligence." />
+  <title>Rahgir — Discover the journey</title>
+  <link rel="preconnect" href="https://unpkg.com" />
+  <link rel="preconnect" href="https://tile.openstreetmap.org" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+  <link rel="stylesheet" href="/static/styles.css" />
+  <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script defer src="/static/app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="Rahgir home"><span class="brand-mark">R</span><span>rahgir<span class="brand-dot">.</span></span></a>
+    <nav class="nav-links" aria-label="Main navigation">
+      <a href="#planner">Plan a journey</a><a href="#discoveries">Discoveries</a><a href="#research">Research</a>
+    </nav>
+    <div class="top-actions"><span class="service-pill"><i></i><span id="api-status">Checking services</span></span><a class="nav-cta" href="#planner">Start planning <span>↗</span></a></div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div class="hero-copy">
+        <div class="eyebrow"><span class="eyebrow-line"></span> ROAD-TRIP INTELLIGENCE, REIMAGINED</div>
+        <h1>The journey<br/>is <em>the destination.</em></h1>
+        <p>Go beyond the fastest route. Discover the places, craft, food and stories worth a thoughtful detour — with the road data and trade-offs in plain sight.</p>
+        <div class="hero-actions"><a class="button button-primary" href="#planner">Build my journey <span>↗</span></a><a class="text-link" href="#how-it-works">How Rahgir works <span>↓</span></a></div>
+        <div class="hero-proof"><div class="proof-avatars"><span>R</span><span>↗</span><span>◎</span></div><div><strong>Evidence before excitement.</strong><small>Every place has a source. Every detour has a cost.</small></div></div>
+      </div>
+      <div class="hero-art" aria-label="Illustration of a winding road through a landscape">
+        <div class="art-sun"></div><div class="art-hill hill-back"></div><div class="art-hill hill-front"></div>
+        <svg class="art-road" viewBox="0 0 640 500" role="img" aria-label="Winding road illustration"><path class="road-shadow" d="M-20 480 C120 420 165 360 110 300 C40 220 100 160 230 180 C340 196 350 270 440 232 C520 198 535 115 690 80"/><path class="road-main" d="M-20 480 C120 420 165 360 110 300 C40 220 100 160 230 180 C340 196 350 270 440 232 C520 198 535 115 690 80"/><path class="road-dash" d="M-20 480 C120 420 165 360 110 300 C40 220 100 160 230 180 C340 196 350 270 440 232 C520 198 535 115 690 80"/></svg>
+        <div class="art-pin pin-one"><span>01</span><b>Old-world stories</b></div><div class="art-pin pin-two"><span>02</span><b>Local flavours</b></div><div class="art-caption">A DIFFERENT WAY TO GET THERE <span>✳</span></div>
+      </div>
+    </section>
+
+    <section class="value-strip" id="how-it-works">
+      <div><span class="value-number">01</span><strong>Real road geometry</strong><small>Not a straight-line guess.</small></div>
+      <div><span class="value-number">02</span><strong>Meaningful discoveries</strong><small>Places mapped along your route.</small></div>
+      <div><span class="value-number">03</span><strong>Honest trade-offs</strong><small>Detours, time and evidence made clear.</small></div>
+    </section>
+
+    <section class="planner-section section-shell" id="planner">
+      <div class="section-heading"><div><div class="eyebrow"><span class="eyebrow-line"></span> YOUR NEXT CHAPTER</div><h2>Plan a journey worth remembering.</h2></div><p>Set your limits. Rahgir finds road-adjacent discoveries that fit them.</p></div>
+      <div class="planner-layout">
+        <form id="plan-form" class="planner-card">
+          <div class="card-topline"><div><span class="card-kicker">01 / THE ROUTE</span><h3>Where to?</h3></div><span class="mini-icon">↗</span></div>
+          <div class="location-fields">
+            <label class="field-label">STARTING POINT<input id="origin" name="origin" value="Delhi" required minlength="2" maxlength="160" autocomplete="off"/><span class="field-symbol start-symbol"></span></label>
+            <button class="swap-button" type="button" id="swap-locations" aria-label="Swap start and destination">↕</button>
+            <label class="field-label">DESTINATION<input id="destination" name="destination" value="Agra" required minlength="2" maxlength="160" autocomplete="off"/><span class="field-symbol end-symbol"></span></label>
+          </div>
+          <div class="field-grid two-col">
+            <label class="field-label">DEPARTURE DATE<input id="departure-date" name="departure-date" type="date"/></label>
+            <label class="field-label">DEPARTURE TIME<input id="departure-time" name="departure-time" type="time" value="08:00"/></label>
+          </div>
+          <div class="card-divider"></div>
+          <div class="card-divider"></div>
+          <div class="card-topline compact"><div><span class="card-kicker">02 / YOUR TRAVEL MOOD</span><h3>What kind of journey feels right?</h3></div></div>
+          <div class="mode-grid" role="group" aria-label="Choose a travel style">
+            <button class="mode-chip active" type="button" data-mode="balanced" aria-pressed="true"><span>✳</span><b>Balanced</b><small>A bit of everything</small></button>
+            <button class="mode-chip" type="button" data-mode="culture" aria-pressed="false"><span>⌂</span><b>Culture</b><small>Heritage & stories</small></button>
+            <button class="mode-chip" type="button" data-mode="food" aria-pressed="false"><span>◒</span><b>Food trail</b><small>Local flavours</small></button>
+            <button class="mode-chip" type="button" data-mode="nature" aria-pressed="false"><span>❋</span><b>Nature</b><small>Green & scenic</small></button>
+            <button class="mode-chip" type="button" data-mode="explorer" aria-pressed="false"><span>✧</span><b>Explorer</b><small>Offbeat discoveries</small></button>
+            <button class="mode-chip" type="button" data-mode="family" aria-pressed="false"><span>⌂</span><b>Family</b><small>Comfort-oriented</small></button>
+          </div>
+          <select id="traveler-mode" class="visually-hidden" aria-label="Travel style"><option value="balanced" selected>Balanced explorer</option><option value="culture">Culture & heritage</option><option value="food">Food trail</option><option value="nature">Nature seeker</option><option value="family">Family-friendly</option><option value="explorer">Offbeat explorer</option></select>
+          <div class="detour-control"><label for="detour-budget" class="field-label">YOUR EXTRA DRIVE BUDGET <strong><span id="detour-value">60</span> minutes</strong></label><input id="detour-budget" type="range" min="0" max="180" step="5" value="60"/><div class="dial-labels"><small>Direct route</small><small>Up to 3 hours extra</small></div></div>
+          <div class="discovery-dial">
+            <div class="dial-heading"><div><span class="card-kicker">03 / THE RAHGIR DISCOVERY DIAL</span><h3>How curious are we feeling?</h3></div><strong id="discovery-value">55% discovery</strong></div>
+            <input id="discovery-bias" type="range" min="0" max="100" step="5" value="55" aria-label="Balance between efficiency and discovery"/>
+            <div class="dial-labels"><span><b>⚡ Efficiency</b><small>Keep the drive lean</small></span><span><b>✧ Discovery</b><small>Make room for detours</small></span></div>
+            <p id="discovery-copy" class="dial-copy">A thoughtful mix: keep the journey moving, but leave room for places worth remembering.</p>
+          </div>
+          <details class="advanced-options">
+            <summary>Fine-tune your journey <span>Journey time, stop limits & interests</span></summary>
+            <div class="field-grid two-col compact-grid">
+              <label class="field-label">MAX JOURNEY TIME<select id="max-time"><option value="360">6 hours</option><option value="480">8 hours</option><option value="600" selected>10 hours</option><option value="720">12 hours</option><option value="960">16 hours</option><option value="1440">24 hours</option></select></label>
+              <label class="field-label">MAX STOPS<select id="max-stops"><option value="0">No stops</option><option value="2">2 stops</option><option value="3">3 stops</option><option value="4" selected>4 stops</option><option value="6">6 stops</option><option value="8">8 stops</option></select></label>
+            </div>
+            <label class="field-label advanced-duration">TIME AT EACH STOP<select id="stop-duration"><option value="15">15 minutes</option><option value="30" selected>30 minutes</option><option value="45">45 minutes</option><option value="60">1 hour</option><option value="90">1.5 hours</option></select></label>
+            <div class="preference-title"><span>YOUR INTERESTS</span><small>Optional fine-tuning</small></div>
+            <div class="preference-grid">
+              <label>Culture <input type="range" min="0" max="100" value="80" data-pref="culture"/><b>80</b></label>
+              <label>History <input type="range" min="0" max="100" value="70" data-pref="history"/><b>70</b></label>
+              <label>Food <input type="range" min="0" max="100" value="60" data-pref="food"/><b>60</b></label>
+              <label>Nature <input type="range" min="0" max="100" value="50" data-pref="nature"/><b>50</b></label>
+              <label>Heritage <input type="range" min="0" max="100" value="65" data-pref="religion"/><b>65</b></label>
+              <label>Local markets <input type="range" min="0" max="100" value="40" data-pref="shopping"/><b>40</b></label>
+              <label>Photography <input type="range" min="0" max="100" value="45" data-pref="photography"/><b>45</b></label>
+            </div>
+            <p class="form-note">Family mode is a preference profile, not an accessibility guarantee. Safety data is not currently sufficient to offer a safety-first route.</p>
+          </details>
+          <button class="button button-primary button-wide" type="submit" id="plan-button">Find my route <span>↗</span></button>
+          <label class="field-label demo-select-label">OFFLINE WALKTHROUGH ROUTE<select id="demo-case"><option value="delhi-agra">Delhi → Agra</option><option value="ghaziabad-etawah">Ghaziabad → Etawah</option><option value="delhi-jaipur">Delhi → Jaipur</option><option value="delhi-mathura">Delhi → Mathura</option><option value="mumbai-pune">Mumbai → Pune</option></select></label>
+          <button class="button button-outline button-wide demo-button" type="button" id="demo-button">Try an offline walkthrough <span>◎</span></button>
+          <p class="form-note">* Family mode is a preference profile, not an accessibility guarantee. Route results depend on provider coverage.</p>
+          <div id="plan-error" class="inline-error" role="alert" hidden></div>
+        </form>
+
+        <div class="map-card">
+          <div class="map-head"><div><span class="card-kicker">ROAD ROUTE INTELLIGENCE</span><h3 id="map-title">Your route, thoughtfully reimagined.</h3></div><button id="fit-map" class="icon-button" type="button" aria-label="Fit map to route">⤢</button></div>
+          <div class="map-wrap"><div id="route-map" aria-label="Interactive road route map"><div class="map-placeholder"><div class="map-placeholder-icon">⌁</div><strong>Your journey starts here.</strong><span>Plan a trip to see route geometry and nearby discoveries.</span></div></div><div id="map-warning" class="map-warning" hidden></div></div>
+          <div class="map-legend"><span><i class="legend-route"></i> Road route</span><span><i class="legend-place"></i> Discoveries</span><span><i class="legend-origin"></i> Start / end</span><span class="map-attribution">© OpenStreetMap contributors</span></div>
+          <div class="map-footer"><div><span class="footer-label">ROUTE STATUS</span><strong id="route-status">Awaiting a journey</strong></div><div><span class="footer-label">SAFETY EVIDENCE</span><strong class="muted-strong">Not available</strong></div><div><span class="footer-label">DATA FRESHNESS</span><strong id="data-freshness">—</strong></div></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="results" class="results-section section-shell" hidden>
+      <div class="results-heading"><div><div class="eyebrow"><span class="eyebrow-line"></span> YOUR JOURNEY, DECODED</div><h2>Choose your kind of discovery.</h2><p id="results-subtitle">A route shaped around your curiosity.</p></div><div class="result-actions"><button id="share-trip" class="button button-outline" type="button">Share itinerary ↗</button><button id="export-trip" class="button button-dark" type="button">Export PDF ↓</button></div></div>
+      <div id="demo-banner" class="demo-banner" hidden><b>ILLUSTRATIVE DEMO DATA</b> This walkthrough uses synthetic road costs and invented POIs. It is not real navigation, field evidence, or publishable research data.</div>
+      <div class="route-insight" id="route-insight"><span class="insight-spark">✳</span><div><span class="card-kicker">YOUR ROUTE RECIPE</span><strong>Your journey will be shaped around your time, interests and appetite for discovery.</strong><p>Run a plan to see the actual trade-offs.</p></div></div>
+      <div class="metrics-row" id="route-metrics"></div>
+      <div class="alternatives-heading"><div><span class="card-kicker">THE PARETO SHORTLIST</span><h3>Choose your kind of journey.</h3></div><span>Each option is a different feasible trade-off. Select to compare.</span></div>
+      <div id="alternative-cards" class="alternative-grid"></div>
+      <div class="journey-pulse-wrap"><div class="panel-heading"><div><span class="card-kicker">THE JOURNEY AT A GLANCE</span><h3>Your day, stop by stop.</h3></div><span class="small-note">Arrival times are estimates from the route matrix.</span></div><div id="journey-pulse" class="journey-pulse"></div></div>
+      <div class="itinerary-layout">
+        <div class="itinerary-main"><div class="panel-heading"><div><span class="card-kicker">YOUR SELECTED ITINERARY</span><h3 id="selected-label">Balanced route</h3></div><span class="status-chip" id="feasible-chip">Constraints satisfied</span></div><div id="stop-list" class="stop-list"></div><div id="empty-stops" class="empty-state" hidden><span>✳</span><strong>A direct journey.</strong><p>Your current limits leave no feasible detours. Increase the budget to explore more.</p></div>
+          <details class="not-selected-details"><summary>Why not these other places? <span>Review route-fit checks for every mapped candidate</span></summary><div id="not-selected-list" class="not-selected-list"></div></details>
+        </div>
+        <aside class="insight-rail"><div class="insight-card"><span class="card-kicker">THE HONEST VIEW</span><h3>What we know — and what we don't.</h3><div id="safety-insight" class="insight-item"><span class="insight-icon">◇</span><div><b>Safety evidence unavailable</b><p>No verified segment-level safety dataset is connected. Missing reports do not mean a road is safe.</p></div></div><div id="weather-insight" class="insight-item"><span class="insight-icon">☼</span><div><b>Weather not considered</b><p>Forecast data is not part of this plan. Check local advisories before departure.</p></div></div><div class="insight-divider"></div><div class="insight-item"><span class="insight-icon">ⓘ</span><div><b>Opening hours</b><p>Unknown hours stay unknown. Verify directly before visiting.</p></div></div></div>
+          <div class="whatif-card"><span class="card-kicker">WHAT-IF SIMULATOR</span><h3>Try a different version of the day.</h3><label for="whatif-budget">New detour budget <strong><span id="whatif-value">60</span> min</strong></label><input id="whatif-budget" type="range" min="0" max="180" step="5" value="60"/><label class="whatif-time-label" for="whatif-departure">What if you leave at a different time?<input id="whatif-departure" type="datetime-local"/></label><p class="small-note">Changing departure time recomputes ETA and supported opening-hours checks. Traffic, weather and sunset are not inferred unless a provider is connected.</p><button id="whatif-button" class="button button-primary button-wide" type="button">Recalculate itinerary ↗</button><p id="whatif-note" class="small-note">This reruns the itinerary optimizer; it does not just alter the displayed score.</p></div>
+        </aside>
+      </div>
+      <section class="candidate-explorer" aria-labelledby="candidate-heading"><div class="panel-heading"><div><span class="card-kicker">ALONG YOUR ROAD</span><h3 id="candidate-heading">Every mapped place considered.</h3><p class="small-note">Single-stop detours are checked with directed road-network legs. Combined feasibility depends on the chosen itinerary.</p></div><span class="candidate-count" id="candidate-count">0 places</span></div><div class="candidate-filters" role="group" aria-label="Filter candidate places"><button type="button" data-filter="all" class="filter-chip active" aria-pressed="true">All</button><button type="button" data-filter="heritage" class="filter-chip" aria-pressed="false">Heritage</button><button type="button" data-filter="food" class="filter-chip" aria-pressed="false">Food</button><button type="button" data-filter="nature" class="filter-chip" aria-pressed="false">Nature</button><button type="button" data-filter="craft" class="filter-chip" aria-pressed="false">Craft & markets</button><button type="button" data-filter="other" class="filter-chip" aria-pressed="false">Other</button></div><div id="candidate-grid" class="candidate-grid"></div><div id="candidate-empty" class="empty-state" hidden>No candidates match this filter.</div></section>
+    </section>
+
+    <section id="discoveries" class="discover-section section-shell">
+      <div class="section-heading"><div><div class="eyebrow"><span class="eyebrow-line"></span> A LITTLE MORE HUMAN</div><h2>Not just stops. Stories.</h2></div><p>Places are sourced from map data. Context is only as good as what has been mapped — we never invent a town's identity.</p></div>
+      <div class="discovery-cards"><article class="discovery-card discovery-dark"><span class="disc-number">01 / CULTURE</span><div class="disc-illustration disc-temple">⌂</div><h3>Find the story<br/>behind the stop.</h3><p>Heritage, historic tags, local craft and community-mapped places in one route-aware view.</p><span class="disc-foot">SOURCE-LED DISCOVERY <b>↗</b></span></article><article class="discovery-card discovery-sand"><span class="disc-number">02 / DETOURS</span><div class="disc-illustration disc-road">〰</div><h3>Every detour<br/>earns its place.</h3><p>Actual road-network legs and cumulative time limits keep the itinerary honest.</p><span class="disc-foot">FEASIBILITY FIRST <b>↗</b></span></article><article class="discovery-card discovery-green"><span class="disc-number">03 / TRUST</span><div class="disc-illustration disc-eye">◎</div><h3>Know what is<br/>not known.</h3><p>Missing hours, sparse safety evidence and uncertain context are clearly labelled.</p><span class="disc-foot">NO FALSE CERTAINTY <b>↗</b></span></article></div>
+    </section>
+
+    <section class="report-section section-shell"><div class="report-copy"><div class="eyebrow"><span class="eyebrow-line"></span> THE ROAD IS A SHARED PLACE</div><h2>Help the next traveller<br/><em>know a little more.</em></h2><p>Report a road issue or a useful local discovery. Every report is a starting point for review — not an automatic truth.</p><button class="button button-dark" id="open-report" type="button">Make a community report <span>↗</span></button></div><div class="report-art"><div class="report-orbit orbit-a"></div><div class="report-orbit orbit-b"></div><div class="report-stamp">YOUR<br/>ROAD<br/>NOTE <span>✳</span></div><div class="report-footnote">GOOD JOURNEYS<br/>ARE BUILT TOGETHER.</div></div></section>
+
+    <section class="research-section section-shell" id="research"><div class="section-heading"><div><div class="eyebrow"><span class="eyebrow-line"></span> BUILT TO BE QUESTIONED</div><h2>Research, not just recommendations.</h2></div><p>The decision engine is deterministic and independently testable. The research harness separates synthetic algorithm benchmarks from live route observations.</p></div><div class="research-grid"><div class="research-copy"><h3>Transparent by design.</h3><p>Rahgir models route-adjacent discovery as a constrained multi-objective selection problem. It uses a Pareto search rather than hiding every trade-off inside one opaque score.</p><a class="text-link" href="/api/docs" target="_blank" rel="noreferrer">Explore the API <span>↗</span></a><a class="text-link" href="/api/v1/research/experiments" target="_blank" rel="noreferrer">Research experiment protocol <span>↗</span></a></div><div class="research-stats" id="research-stats"><div><b>NSGA-II</b><span>Deterministic, seed-controlled search</span></div><div><b>6 objectives</b><span>Value, diversity, novelty proxy, detour, distance, evidence metadata</span></div><div><b>Hard constraints</b><span>Detour, time, stop cap and supported opening hours</span></div><div><b>0 LLM dependencies</b><span>Core routing and optimization remain operational without generative AI</span></div></div></div></section>
+
+    <section class="source-note section-shell"><div><span class="card-kicker">A NOTE ON SOURCES</span><h3>Good decisions start with good evidence.</h3></div><p>© OpenStreetMap contributors · OpenStreetMap data is licensed under ODbL. Routing providers and public endpoints are subject to their own terms and usage limits. Weather, crowd, safety and opening-hours data are not assumed when absent.</p></section>
+  </main>
+
+  <footer class="footer"><a class="brand" href="/"><span class="brand-mark">R</span><span>rahgir<span class="brand-dot">.</span></span></a><p>Don't just travel the distance. Discover the journey.</p><span>© 2026 RAHGIR · BUILT WITH CARE</span></footer>
+
+  <div class="modal-backdrop" id="report-modal" hidden><div class="modal" role="dialog" aria-modal="true" aria-labelledby="report-title"><button class="modal-close" type="button" id="close-report" aria-label="Close report form">×</button><span class="card-kicker">COMMUNITY ROAD NOTE</span><h2 id="report-title">What did you notice?</h2><p>Reports are not verified by default. Share only information you are comfortable making public.</p><form id="report-form"><label class="field-label">REPORT TYPE<select id="report-category"><option value="road_damage">Road damage / pothole</option><option value="accident">Accident</option><option value="flooding">Flooding / waterlogging</option><option value="obstruction">Road obstruction</option><option value="lighting">Poor lighting</option><option value="closure">Road closure</option><option value="traffic">Traffic issue</option><option value="local_discovery">Useful local discovery</option><option value="facility_update">Facility information update</option></select></label><label class="field-label">WHAT HAPPENED?<textarea id="report-description" minlength="10" maxlength="1200" rows="4" placeholder="Describe what you observed, without sharing personal details..." required></textarea></label><div class="field-grid two-col"><label class="field-label">LATITUDE<input id="report-lat" type="number" step="any" min="-90" max="90" required/></label><label class="field-label">LONGITUDE<input id="report-lon" type="number" step="any" min="-180" max="180" required/></label></div><button class="button button-primary button-wide" type="submit">Submit for review ↗</button><div class="inline-error" id="report-message" role="status"></div></form></div></div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>

@@ -1,0 +1,109 @@
+{
+  "experiment_type": "synthetic algorithm benchmark only",
+  "warning": "Not road validation, not POI ground truth, not a user study, not a safety study, and not a claim of real-world effectiveness.",
+  "parameters": {
+    "seeds": 5,
+    "instances": 8,
+    "candidates": 12,
+    "population": 64,
+    "generations": 60
+  },
+  "results": {
+    "Distance-only": {
+      "runs": 40,
+      "mean_hypervolume_3d_mc": 0.05467,
+      "mean_igd_6d": 0.450815,
+      "mean_runtime_ms": 0.053,
+      "mean_front_size": 1
+    },
+    "NSGA-II": {
+      "runs": 40,
+      "mean_hypervolume_3d_mc": 0.255434,
+      "mean_igd_6d": 0.126492,
+      "mean_runtime_ms": 627.262,
+      "mean_front_size": 57.875
+    },
+    "Nearest-feasible": {
+      "runs": 40,
+      "mean_hypervolume_3d_mc": 0.134135,
+      "mean_igd_6d": 0.441001,
+      "mean_runtime_ms": 0.061,
+      "mean_front_size": 1
+    },
+    "Weighted-greedy": {
+      "runs": 40,
+      "mean_hypervolume_3d_mc": 0.096785,
+      "mean_igd_6d": 0.486873,
+      "mean_runtime_ms": 2.213,
+      "mean_front_size": 2.75
+    }
+  },
+  "paired_comparisons": {
+    "hypervolume_vs_nearest": {
+      "n_independent_instances": 8,
+      "mean_paired_improvement": 0.121299,
+      "cluster_bootstrap_95_ci": [
+        0.098441,
+        0.148631
+      ],
+      "exact_paired_sign_flip_p_value": 0.007812,
+      "direction": "positive favours NSGA-II",
+      "unit_of_resampling": "instance (seed runs averaged within instance)"
+    },
+    "hypervolume_vs_weighted_greedy": {
+      "n_independent_instances": 8,
+      "mean_paired_improvement": 0.158649,
+      "cluster_bootstrap_95_ci": [
+        0.135927,
+        0.179542
+      ],
+      "exact_paired_sign_flip_p_value": 0.007812,
+      "direction": "positive favours NSGA-II",
+      "unit_of_resampling": "instance (seed runs averaged within instance)"
+    },
+    "igd_improvement_vs_nearest": {
+      "n_independent_instances": 8,
+      "mean_paired_improvement": 0.314509,
+      "cluster_bootstrap_95_ci": [
+        0.287153,
+        0.343286
+      ],
+      "exact_paired_sign_flip_p_value": 0.007812,
+      "direction": "positive favours NSGA-II",
+      "unit_of_resampling": "instance (seed runs averaged within instance)"
+    },
+    "igd_improvement_vs_weighted_greedy": {
+      "n_independent_instances": 8,
+      "mean_paired_improvement": 0.360381,
+      "cluster_bootstrap_95_ci": [
+        0.330838,
+        0.388715
+      ],
+      "exact_paired_sign_flip_p_value": 0.007812,
+      "direction": "positive favours NSGA-II",
+      "unit_of_resampling": "instance (seed runs averaged within instance)"
+    },
+    "hypervolume_vs_distance_only": {
+      "n_independent_instances": 8,
+      "mean_paired_improvement": 0.200764,
+      "cluster_bootstrap_95_ci": [
+        0.17252,
+        0.223968
+      ],
+      "exact_paired_sign_flip_p_value": 0.007812,
+      "direction": "positive favours NSGA-II",
+      "unit_of_resampling": "instance (seed runs averaged within instance)"
+    },
+    "igd_improvement_vs_distance_only": {
+      "n_independent_instances": 8,
+      "mean_paired_improvement": 0.324324,
+      "cluster_bootstrap_95_ci": [
+        0.294588,
+        0.363566
+      ],
+      "exact_paired_sign_flip_p_value": 0.007812,
+      "direction": "positive favours NSGA-II",
+      "unit_of_resampling": "instance (seed runs averaged within instance)"
+    }
+  }
+}
