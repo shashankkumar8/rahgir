@@ -54,7 +54,7 @@ class ProviderWithMalformedPOIs:
             return {"distance_m": 50000, "duration_s": 3600, "geometry": [[77.2, 28.6], [77.3, 28.6]], "provider": "TEST ROUTER"}
         return {"distance_m": 52000, "duration_s": 4000, "geometry": [[77.2, 28.6], [77.25, 28.6], [77.3, 28.6]], "provider": "TEST ROUTER"}
 
-    async def discover_pois(self, route, radius):
+    async def discover_pois(self, route, radius, categories=None):
         return [
             {"id": "osm/node/1", "name": "On-route heritage", "latitude": 28.6, "longitude": 77.25, "tags": {"historic": "monument", "name": "On-route heritage"}, "source_url": "https://www.openstreetmap.org/node/1"},
             {"id": "osm/node/2", "name": "Far away", "latitude": 29.5, "longitude": 77.25, "tags": {"historic": "monument"}, "source_url": "https://www.openstreetmap.org/node/2"},
@@ -108,3 +108,54 @@ def test_discovery_bias_changes_selected_pareto_persona_without_changing_feasibi
     for result in (efficiency, discovery):
         assert result["selected_alternative"]["constraints"]["detour_budget_respected"] is True
         assert result["selected_alternative"]["constraints"]["max_journey_time_respected"] is True
+
+
+def test_complete_route_validation_applies_cumulative_extra_driving_and_stop_time():
+    from app.engine.route_validation import validate_route_sequence
+
+    class SequenceProvider:
+        async def route(self, coordinates):
+            return {
+                "distance_m": 130_000,
+                "duration_s": 6_000,
+                "geometry": [[77.2, 28.6], [77.4, 28.4], [77.6, 28.2]],
+                "provider": "TEST ROUTER",
+            }
+
+        async def matrix(self, coordinates):
+            return {
+                "durations": [
+                    [0, 1800, 3600, 6000],
+                    [1800, 0, 1800, 4200],
+                    [3600, 1800, 0, 2400],
+                    [6000, 4200, 2400, 0],
+                ],
+                "distances": [
+                    [0, 25_000, 50_000, 100_000],
+                    [25_000, 0, 25_000, 75_000],
+                    [50_000, 25_000, 0, 50_000],
+                    [100_000, 75_000, 50_000, 0],
+                ],
+                "provider": "TEST MATRIX",
+            }
+
+    request = PlanRequest(
+        origin="Delhi", destination="Agra", detour_budget_minutes=35,
+        max_journey_minutes=150, max_stops=2, stop_duration_minutes=20,
+    )
+    stops = [
+        {"id": "p1", "name": "Stop 1", "tags": {}, "latitude": 28.5, "longitude": 77.3},
+        {"id": "p2", "name": "Stop 2", "tags": {}, "latitude": 28.4, "longitude": 77.4},
+    ]
+    result = asyncio.run(validate_route_sequence(
+        SequenceProvider(), [(28.6, 77.2), (28.5, 77.3), (28.4, 77.4), (27.2, 78.0)],
+        stops, request, baseline_distance_m=100_000, baseline_duration_s=3_600,
+    ))
+    assert result["additional_driving_minutes"] == pytest.approx(40)
+    assert result["total_journey_minutes"] == pytest.approx(140)
+    assert result["constraints"]["detour_budget_respected"] is False
+    assert result["constraints"]["max_journey_time_respected"] is True
+    assert result["constraints"]["stop_count"] == 2
+    assert result["constraints"]["max_stops_respected"] is True
+    assert result["feasible"] is False
+    assert result["status"] == "constraints_not_met"

@@ -27,10 +27,10 @@ from .config import settings
 from .database import CommunityReport, SessionLocal, SharedTrip, TripRecord, get_session, init_db, serialise_trip
 from .engine.geometry import haversine_m
 from .engine.planner import RoutePlanner
-from .schemas import ModerationRequest, PlanRequest, ReportRequest, WhatIfRequest, RoutePreviewRequest, AskTripRequest
+from .schemas import ModerationRequest, PlanRequest, ReportRequest, WhatIfRequest, RoutePreviewRequest
 from .services.demo import DEMO_CASES, DemoProviders, get_demo_case
 from .services.providers import ExternalProviders, ProviderError
-from .services.assistant import answer_trip_question
+from .engine.route_validation import validate_route_sequence
 
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -45,7 +45,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Rahgir Road-Trip Intelligence",
     description="Evidence-aware, route-corridor POI discovery and deterministic multi-objective itinerary planning.",
-    version="0.2.0",
+    version="0.3.0",
     docs_url="/api/docs",
     redoc_url="/api/redoc",
     lifespan=lifespan,
@@ -130,18 +130,32 @@ def shared_page(token: str):
 
 @app.get("/api/v1/health")
 def health():
+    geocoder_ready = settings.geocoder_provider.lower() == "nominatim" and settings.geocoder_base_url.lower().startswith("https://")
+    routing_provider = settings.routing_provider.lower()
+    routing_ready = (
+        routing_provider == "osrm" and settings.osrm_base_url.lower().startswith("https://")
+    ) or (
+        routing_provider == "ors" and bool(settings.ors_api_key) and settings.ors_base_url.lower().startswith("https://")
+    )
+    poi_ready = settings.overpass_url.lower().startswith("https://")
+    ready = geocoder_ready and routing_ready and poi_ready
     return {
         "status": "ok",
         "service": "rahgir-api",
         "version": app.version,
         "environment": settings.app_env,
-        "routing_provider_configured": settings.routing_provider,
-        "geocoder_provider_configured": settings.geocoder_provider,
-        "overpass_configured": bool(settings.overpass_url),
+        "live_planning_ready": ready,
+        "planning_state": "configured_not_probed" if ready else "configuration_missing",
+        "providers": {
+            "geocoder": {"provider": settings.geocoder_provider, "configured": geocoder_ready, "purpose": "User-submitted endpoint search; no autocomplete"},
+            "routing": {"provider": routing_provider, "configured": routing_ready, "best_effort": routing_provider == "osrm"},
+            "poi_discovery": {"provider": "OpenStreetMap Overpass", "configured": poi_ready},
+        },
         "external_providers_probed": False,
-        "trip_assistant": "openrouter_configured" if settings.openrouter_api_key else "grounded_local_mode",
-        "wikipedia_enrichment": settings.wikipedia_enrichment,
-        "note": "Health confirms process readiness only; external providers are checked when a trip is planned.",
+        "synthetic_walkthrough": settings.allow_demo,
+        "core_engine": "deterministic road-matrix feasibility and Pareto optimisation; no LLM dependency",
+        "limits": {"nominatim_autocomplete": False, "live_fallback_to_synthetic": False, "safety_rating": False, "weather_adjustment": False},
+        "note": "This endpoint checks configuration only. Provider uptime is verified only when a live trip is requested.",
     }
 
 
@@ -213,49 +227,52 @@ async def what_if_trip(trip_id: str, body: WhatIfRequest, session: Session = Dep
 
 
 
-@app.post("/api/v1/trips/{trip_id}/ask")
-async def ask_trip_question(trip_id: str, body: AskTripRequest, session: Session = Depends(get_session)):
-    record = session.get(TripRecord, trip_id)
-    if not record:
-        raise HTTPException(status_code=404, detail="Trip not found")
-    result = json.loads(record.result_json)
-    answer = await answer_trip_question(body.question.strip(), body.history, result)
-    return answer
-
-
 @app.post("/api/v1/trips/{trip_id}/route-preview")
 async def preview_alternative_route(trip_id: str, body: RoutePreviewRequest, session: Session = Depends(get_session)):
     record = session.get(TripRecord, trip_id)
     if not record:
         raise HTTPException(status_code=404, detail="Trip not found")
     result = json.loads(record.result_json)
+    raw_request = json.loads(record.request_json)
+    case_id = raw_request.pop("_demo_case_id", None)
+    try:
+        plan_request = PlanRequest(**raw_request)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Stored trip request is no longer valid; plan a new trip") from exc
     origin = result.get("origin", {})
     destination = result.get("destination", {})
-    if origin.get("latitude") is None or destination.get("latitude") is None or origin.get("longitude") is None or destination.get("longitude") is None:
+    if any(origin.get(key) is None or destination.get(key) is None for key in ("latitude", "longitude")):
         raise HTTPException(status_code=422, detail="Stored trip is missing endpoint coordinates")
-    allowed = {}
-    for alternative in result.get("alternatives", []):
-        for stop in alternative.get("stops", []):
-            allowed[stop["id"]] = stop
-    if any(stop_id not in allowed for stop_id in body.stop_ids):
-        raise HTTPException(status_code=422, detail="One or more selected stops are not part of this trip's computed alternatives")
-    stop_rows = [allowed[x] for x in body.stop_ids]
-    # Keep itinerary stops in the same along-route order used by the optimizer.
-    stop_rows.sort(key=lambda x: next((p.get("route_progress", 0) for p in result.get("candidates", []) if p.get("id") == x["id"]), 0))
+    if len(body.stop_ids) > plan_request.max_stops:
+        raise HTTPException(status_code=422, detail=f"Your plan allows at most {plan_request.max_stops} stops")
+
+    # Allow any mapped corridor candidate, not just stops selected by the optimizer.
+    candidates = {item["id"]: item for item in result.get("candidates", []) if isinstance(item, dict) and item.get("id")}
+    if any(stop_id not in candidates for stop_id in body.stop_ids):
+        raise HTTPException(status_code=422, detail="One or more selected places are not part of this trip's mapped candidates")
+    stop_rows = [candidates[stop_id] for stop_id in body.stop_ids]
+    stop_rows.sort(key=lambda item: (float(item.get("route_progress", 0)), str(item["id"])))
     coordinates = [(float(origin["latitude"]), float(origin["longitude"]))]
-    coordinates += [(float(x["latitude"]), float(x["longitude"])) for x in stop_rows]
-    coordinates += [(float(destination["latitude"]), float(destination["longitude"]))]
-    raw_request = json.loads(record.request_json)
-    case_id = raw_request.get("_demo_case_id")
+    coordinates.extend((float(item["latitude"]), float(item["longitude"])) for item in stop_rows)
+    coordinates.append((float(destination["latitude"]), float(destination["longitude"])))
+
     providers = DemoProviders(get_demo_case(case_id)) if case_id else ExternalProviders()
     try:
-        route = await providers.route(coordinates)
+        baseline = result.get("route", {})
+        baseline_distance_m = float(baseline["distance_km"]) * 1000
+        baseline_duration_s = float(baseline["duration_minutes"]) * 60
+        validation = await validate_route_sequence(
+            providers, coordinates, stop_rows, plan_request,
+            baseline_distance_m, baseline_duration_s,
+        )
+        return validation
     except ProviderError as exc:
-        raise HTTPException(status_code=502, detail={"provider": exc.provider, "message": str(exc)}) from exc
+        raise HTTPException(status_code=502, detail={"provider": exc.provider, "message": str(exc), "status_code": exc.status_code}) from exc
+    except (KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=502, detail={"provider": "route validation", "message": "Provider returned incomplete route or matrix data."}) from exc
     finally:
         if isinstance(providers, ExternalProviders):
             await providers.close()
-    return {"provider": route["provider"], "geometry": route["geometry"], "distance_km": round(route["distance_m"] / 1000, 2), "duration_minutes": round(route["duration_s"] / 60, 1), "stop_ids": body.stop_ids}
 
 
 @app.post("/api/v1/reports")

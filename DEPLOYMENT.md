@@ -1,44 +1,45 @@
-# Deploy Rahgir to Render
+# Deploy Rahgir
 
-This repository includes a Render Blueprint at `render.yaml`.
+Rahgir's Render service is a preview deployment. It is intentionally configured separately from other applications.
 
-## Important deployment behaviour
+## Preview configuration
 
-- The Blueprint targets a **free** Singapore web service for a demo deployment. Free services can sleep when idle.
-- The current application uses SQLite. The Blueprint stores it under `/tmp`, which is ephemeral. **Trips, reports and share links can be lost on restart/redeploy.** This is acceptable only for a preview; it is not durable production storage.
-- The application is a research prototype. The current safety subsystem intentionally reports `insufficient_evidence`; it must not be marketed as a safe-navigation product.
-- The live provider adapters use public OSM/Nominatim/Overpass and OSRM defaults. These are not a production SLA. Set a valid identifying `HTTP_USER_AGENT` with an operator contact before enabling live geocoding. Follow the providers' usage policies and attribution requirements. Do not add autocomplete or bulk geocoding to public Nominatim.
-- Do not add API keys or secrets to Git. Configure them in the Render environment.
-- The trip assistant runs in deterministic local-grounded mode unless `OPENROUTER_API_KEY` is set. When enabled, set `OPENROUTER_API_KEY` and optionally `OPENROUTER_MODEL` / `OPENROUTER_BASE_URL` in Render; never paste a secret into Git or a chat message.
-- `WIKIPEDIA_ENRICHMENT=true` enables optional article summaries and thumbnails only where an OSM place explicitly contains a `wikipedia=en:...` tag. It does not infer Wikipedia pages from names.
-- Saved journey IDs and journal entries are browser-local. On the free preview, server trip records remain ephemeral because SQLite is under `/tmp`.
+- Runtime: Python / FastAPI.
+- Build: `python -m pip install --upgrade pip && pip install -r backend/requirements.txt`.
+- Start: `PYTHONPATH=backend uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1`.
+- Routing: public OSRM demo adapter (best effort).
+- Geocoding: Nominatim, explicit user-submitted searches only; no autocomplete.
+- POI discovery: bounded Overpass route-corridor queries.
+- Database: SQLite at `/tmp/rahgir.db` on the free preview. This is ephemeral.
 
-## Deploy steps
+The application identifies itself with `HTTP_USER_AGENT=RahgirRoadTripPlanner/0.3.0 (+https://github.com/shashankkumar8/rahgir)` and uses the configured public-provider request gate. Do not add autocomplete, batch geocoding, city-wide scraping or high-frequency polling. Preserve attribution and caching. Public providers can throttle, reject or be unavailable; errors must be shown as errors, never turned into synthetic live trips.
 
-1. Push this repository to a GitHub repository you control.
-2. In Render, choose **New → Blueprint** and connect that repository.
-3. Render reads `render.yaml` and previews a single `rahgir` web service. Review the plan/region before applying.
-4. During the first setup, provide `HTTP_USER_AGENT` with a real project/operator contact. Render generates `ADMIN_TOKEN`; retrieve it securely from the service's environment settings when moderation is needed. Never publish it.
-5. Apply the Blueprint and wait for the service deploy to finish. The current manually created preview has geocoding disabled until a real operator contact is configured; set `GEOCODER_PROVIDER=nominatim` and a proper `HTTP_USER_AGENT` only after you have added the contact string and reviewed public Nominatim usage limits.
-6. Check `https://<your-service>.onrender.com/api/v1/health`. A successful response confirms process readiness only; it does not probe OSRM, Nominatim or Overpass.
-7. Open the root URL. Use **Try synthetic walkthrough** to verify the product UI. It exercises the workspace, map fallback, saved-trip browser index, local journal and grounded trip assistant without external map providers. Synthetic route/POI values are clearly labelled and must never be used for real navigation or research outcome data.
+## Required environment
 
-## Before production use
+See `.env.example`. No API key is necessary for the current public Nominatim + OSRM + Overpass preview path. `ORS_API_KEY` is only required when you intentionally switch to OpenRouteService. Keep `ADMIN_TOKEN` generated/secret in Render; never add it to Git.
 
-1. Replace SQLite with managed PostgreSQL and add the matching SQLAlchemy driver. Run migrations and verify backup/restore.
-2. Move persistent user uploads to object storage if uploads are introduced.
-3. Configure a production routing/geocoding/POI provider with appropriate quotas, caching and attribution.
-4. Set a real operator contact in `HTTP_USER_AGENT`; keep secrets only in Render environment variables.
-5. Add authentication and per-user authorization before exposing personal saved trips. The current read-only share token is not a user-account system.
-6. Conduct live route validation, monitor provider failures, add observability and security review.
-7. Do not claim validated safety, traffic, weather or incident intelligence until those evidence feeds and validations exist.
+## Deploy from GitHub
 
-## Local equivalent
+1. Connect `shashankkumar8/rahgir`, branch `main`, to the existing dedicated Rahgir Render service.
+2. Use the build and start commands above.
+3. Ensure `GEOCODER_PROVIDER=nominatim`, `ROUTING_PROVIDER=osrm`, `HTTP_USER_AGENT` is set to the app-identifying value, `PUBLIC_PROVIDER_MIN_INTERVAL=1.05`, and `OVERPASS_URL` is configured.
+4. Confirm the deploy is live in Render logs.
+5. Open `/api/v1/health`. It reports app/provider configuration, not a successful external provider probe.
+6. Perform one user-initiated live trip plan from the UI. A successful health response alone does not prove routing, geocoding or POI services are reachable.
+7. Separately test an invalid/unknown location and provider outage; ensure the UI shows an actionable failure and does not change into the synthetic demo.
+
+## Persistence limitation
+
+The preview uses SQLite under `/tmp`, which is ephemeral on Render. Server-side trip records, community reports and share links may be lost on restart/redeploy. Browser Saved and Journal are stored in the current browser only and are not account-synced. Do not use this setup for durable user records.
+
+Before a public production launch, provision a dedicated managed PostgreSQL database, migrate with a versioned migration tool, verify backups/restore, add authentication/authorization and per-user access controls, move uploads to object storage if introduced, configure contracted routing/geocoding/POI services, add observability and abuse controls, and conduct security/field validation. Do not reuse another application's database.
+
+## Local run
 
 ```bash
-python -m pip install -r backend/requirements.txt
+python -m pip install -r requirements-dev.txt
 PYTHONPATH=backend uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-Health endpoint: `/api/v1/health`  
+Health: `/api/v1/health`  
 OpenAPI: `/api/docs`

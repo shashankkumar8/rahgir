@@ -9,6 +9,7 @@ from urllib.parse import quote, urlparse
 import httpx
 
 from ..config import settings
+from .poi_query import build_overpass_query
 
 
 class ProviderError(RuntimeError):
@@ -187,27 +188,17 @@ class ExternalProviders:
             return {"durations": data.get("durations"), "distances": data.get("distances"), "provider": "openrouteservice"}
         raise ProviderError("routing matrix", f"unsupported ROUTING_PROVIDER={provider!r}")
 
-    async def discover_pois(self, route_latlon: list[tuple[float, float]], radius_m: int) -> list[dict[str, Any]]:
+    async def discover_pois(self, route_latlon: list[tuple[float, float]], radius_m: int, categories: list[str] | None = None) -> list[dict[str, Any]]:
         from ..engine.geometry import sample_polyline
         samples = sample_polyline(route_latlon, max_samples=12, spacing_m=25_000)
         if not samples:
             return []
-        cache_key = f"{tuple((round(a, 3), round(b, 3)) for a,b in samples)}:{radius_m}"
+        selected_categories = sorted(set(categories or settings.default_poi_categories))
+        cache_key = f"{tuple((round(a, 3), round(b, 3)) for a,b in samples)}:{radius_m}:{','.join(selected_categories)}"
         cached = self._poi_cache.get(cache_key)
         if cached and cached[0] > time.monotonic():
             return [dict(x) for x in cached[1]]
-        clauses = []
-        tag_filters = [
-            '["tourism"~"attraction|museum|gallery|viewpoint|artwork|zoo|theme_park"]',
-            '["historic"]', '["heritage"]',
-            '["amenity"~"place_of_worship|restaurant|cafe|marketplace"]',
-            '["craft"]', '["shop"~"market|craft|bakery"]',
-            '["leisure"~"park|garden|nature_reserve"]',
-        ]
-        for lat, lon in samples:
-            for tag_filter in tag_filters:
-                clauses.append(f"nwr(around:{radius_m},{lat:.5f},{lon:.5f}){tag_filter};")
-        query = "[out:json][timeout:25];(\n" + "\n".join(clauses) + "\n);out center tags;"
+        query = build_overpass_query(samples, radius_m, selected_categories)
         await self._overpass_gate.wait()
         try:
             response = await self.client.post(

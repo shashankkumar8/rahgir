@@ -21,6 +21,13 @@ DEMO_TYPES = [
     ("viewpoint", {"tourism": "viewpoint", "name": "Illustrative viewpoint"}),
     ("park", {"leisure": "park", "name": "Illustrative green space"}),
     ("marketplace", {"amenity": "marketplace", "name": "Illustrative local market"}),
+    ("fuel", {"amenity": "fuel", "name": "Illustrative fuel stop"}),
+    ("ev_charging", {"amenity": "charging_station", "name": "Illustrative EV charger"}),
+    ("restroom", {"amenity": "toilets", "name": "Illustrative public restroom"}),
+    ("medical", {"amenity": "clinic", "name": "Illustrative clinic"}),
+    ("vehicle_service", {"shop": "car_repair", "name": "Illustrative vehicle repair"}),
+    ("parking", {"amenity": "parking", "name": "Illustrative parking area"}),
+    ("rest_area", {"highway": "rest_area", "name": "Illustrative highway rest area"}),
 ]
 
 
@@ -70,7 +77,7 @@ class DemoProviders:
         start, end = self.origin, self.destination
         dlat, dlon = end[0] - start[0], end[1] - start[1]
         points = []
-        for i, (kind, tags) in enumerate(DEMO_TYPES[:7], start=1):
+        for i, (kind, tags) in enumerate(DEMO_TYPES, start=1):
             t = 0.12 + i * 0.095
             # Small perpendicular offset from the schematic route.
             lat = start[0] + dlat * t + (0.012 if i % 2 else -0.012)
@@ -84,8 +91,10 @@ class DemoProviders:
             })
         return points
 
-    async def discover_pois(self, route_latlon, radius_m):
-        return [dict(p) for p in self._pois]
+    async def discover_pois(self, route_latlon, radius_m, categories=None):
+        from ..engine.planner_utils import classify_poi
+        allowed = set(categories or ["heritage", "culture", "food", "nature", "religion", "shopping", "fuel", "ev_charging", "restroom", "medical", "vehicle_service", "parking", "rest_area"])
+        return [dict(p) for p in self._pois if classify_poi(p["tags"])[0] in allowed]
 
     async def matrix(self, coordinates):
         n = len(coordinates)

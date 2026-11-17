@@ -1,88 +1,99 @@
-# Rahgir verification report
+# Rahgir v0.3.0 verification report
 
-**Current release:** 0.2.0  
-**Current verification date:** 17 November 2026 (workspace and trip-companion upgrade)
+**Verification date:** 18 November 2026  
+**Scope:** route-feasibility engine, modular browser client, user-facing trip actions and preview deployment preparation.
 
-## Current v2 verification
-
-Commands executed from the repository root:
-
-- `PYTHONPATH=backend pytest -q` — **49 passed in 11.83 seconds; 0 failed; 0 skipped**.
-- `node --check backend/app/static/app.js` — passed.
-- `python -m compileall -q backend/app tests scripts/browser_smoke.py` — passed.
-- `bash -n scripts/run_local.sh scripts/run_research.sh` — passed.
-- `git diff --check` — passed.
-- `python scripts/browser_smoke.py` — passed the landing form, synthetic result and explicit warning, workspace shell, moved map card, three Pareto alternatives, browser-local save/open, journal note, trip assistant response, candidate filter and search checks; no browser console/page errors; 390 px viewport had `document.body.scrollWidth == 390`.
-
-The current smoke harness serves the actual static HTML/CSS/JavaScript, routes API calls to FastAPI's test client, and intercepts external CDN/provider calls. Its localStorage shim is test-only. The smoke run therefore checks the UI interactions and explicit fallback behaviour, not live map tile rendering or external provider uptime.
-
-The optional OpenRouter request path is covered with a stubbed HTTP client, including an assertion that saved trip evidence is sent as untrusted user-role data rather than a system instruction. Live model behaviour was not tested because no user API key was supplied. Wikipedia enrichment is tested with mocked HTTP responses and explicit OSM Wikipedia tags; external article/image availability is not claimed.
-
----
-
-
-**Verification date:** 17 November 2026 (UX and what-if upgrade)  
-**Build scope:** local development/research prototype  
-**External network:** unavailable from the execution container; live provider calls not verified
-
-## Automated tests
+## Automated backend/API tests
 
 Command: `pytest -q`  
-Result: **44 passed in 11.18 seconds; 0 failed; 0 skipped.**
+Result: **66 passed, 0 failed** (11.41 seconds in the final recorded run).
 
-Coverage includes API health and static page, synthetic trip planning across the supported case fixtures, persistence, what-if recomputation including departure-time propagation, discovery-bias bounds and preference-conditioned selection, share/revoke, PDF export, report submission and moderation rules, duplicate-report flagging, coordinate/geometry validation, route geometry calculations, temporal parsing, evidence abstention, NSGA-II dominance/determinism, provider adapter parsing and failure handling, malformed provider data, and request schema constraints.
+Coverage includes:
 
-The browser smoke script is reproducible with `pip install -r requirements-e2e.txt`, `python -m playwright install chromium`, and `python scripts/browser_smoke.py`. The research figure generator requires `requirements-research.txt`. The provider tests use mocked HTTP responses. They do not make requests to Nominatim, OSRM, OpenRouteService, or Overpass.
+- Request schemas, endpoint validation, date/stop budgets and category selection.
+- Route geometry, corridor projection/sampling and temporal/opening-hours parsing.
+- Provider geocoding/routing/matrix/Overpass parsing, malformed payload handling, rate-gate/cache behaviour and provider-error propagation.
+- Live-mode errors do not fall back to synthetic fixtures.
+- Synthetic demo cases are explicit and labelled.
+- Directed road-matrix candidate assessment, cumulative multi-stop detour and total journey-time constraints.
+- Final via-point route validation, alternative rejection, custom stop validation and provider-error state.
+- Pareto/NSGA-II deterministic behaviour, dominance, feasibility and preference-conditioned option selection.
+- User-entered vehicle efficiency and energy-price validation and cost calculation.
+- Reports, rate limits, moderation evidence requirements and duplicate flagging.
+- Trip persistence, read-only share token creation/revocation, PDF export and what-if recomputation.
+
+Provider tests use controlled HTTP test doubles. They verify adapter contracts and failure modes; they do not count as proof that public map services are reachable from the deployed app.
 
 ## Static checks
 
-- `node --check backend/app/static/app.js` — passed.
-- `python -m compileall -q backend/app research scripts/browser_smoke.py` — passed.
-- `bash -n scripts/run_local.sh scripts/run_research.sh` — passed.
-- Experiment CLI rejects candidate counts above 12 as configured — passed.
-- LaTeX paper compiled with `pdflatex -interaction=nonstopmode -halt-on-error` — passed after adding the interactive decision-support method; final PDF contains 5 pages.
-- PDF re-rendered to page images and visually inspected after the final compile — layout verified; see release artefact.
+- `node --check` on `core.js`, `map.js`, `workspace.js`, `results.js`, `route_actions.js`, `planner.js` and `app.js`: passed.
+- `python -m compileall -q backend/app research scripts`: passed.
+- `bash -n scripts/run_local.sh scripts/run_research.sh`: passed.
+- Source modules under `backend/app/static/` are split by responsibility; each current client module is under 250 lines.
 
-## Browser and HTTP workflow checks
+## Browser end-to-end smoke
 
-Chromium headless smoke run used the actual HTML, CSS and JavaScript with frontend API calls routed to the FastAPI `TestClient` because the environment blocks Chromium navigation to local network addresses. Results:
+Command: `python scripts/browser_smoke.py`  
+Browser: system Chromium, 1440 px desktop and 390 px mobile viewport. The test serves the actual HTML and separate JS modules; browser API calls are routed to an isolated FastAPI `TestClient` with a temporary test database.
 
-- Landing page and trip form rendered.
-- Synthetic Delhi–Agra walkthrough displayed results and its synthetic-data warning; 7 fixture candidates and 3 distinct Pareto alternatives were returned in this run.
-- Selecting the Fastest persona changed the active itinerary and selected-state UI.
-- Candidate category filter changed the visible result set and restoring “All” restored the full set.
-- Discovery dial updated its label; what-if request carried `discovery_bias = 0.9`.
-- What-if request carried a changed departure timestamp (`2026-11-19T10:00` in this run) and triggered backend itinerary recomputation.
-- Community-report dialog opened and closed.
-- No JavaScript page errors or console errors were recorded.
-- At 390 px viewport width, `document.body.scrollWidth` was 390 px (no horizontal overflow).
-- The map's external Leaflet library and tile requests were disabled in this smoke test; the explicit schematic map fallback was used. Its route title/status/freshness display was checked by the render path, but external tile rendering and live marker interactions are not verified here.
-- PDF export is covered by the API integration test; the browser smoke script does not assert a new-tab download event.
+**21/21 browser checks passed.** The flow verifies:
 
-An earlier separate Uvicorn process was queried over local HTTP before the current UI/persona expansion. Health, synthetic plan creation, what-if, share creation/read, and PDF export requests completed in that run. The sample plan created seven synthetic candidates and two alternatives at that earlier revision. PDF export returned an application/pdf response (2,890 bytes in that run). The current revision is covered by the 44-test API suite and the browser smoke run above. All these checks use synthetic fixtures; none is external-provider or field testing.
+1. Landing page and trip form render.
+2. Synthetic walkthrough is opt-in and prominently labelled.
+3. Workspace opens and the map panel moves into the workspace layout.
+4. Pareto alternatives and route proof are visible.
+5. Vehicle type, traveller preferences and location swap affect the request.
+6. Selecting a different Pareto alternative triggers another full-route validation.
+7. Facility filter changes the visible candidate set.
+8. A candidate can be located on the active map/schematic.
+9. Map fit/reset action works in schematic fallback mode.
+10. Custom-stop selection changes the selected count.
+11. Custom stop sequence calls full-route provider validation.
+12. A confirmed-feasible custom route can be applied; an infeasible one remains disabled.
+13. Category filter and search alter the visible candidate set.
+14. What-if calls the recomputation API.
+15. Read-only share token is created and copied.
+16. PDF export returns an `application/pdf` response with a `%PDF` signature.
+17. Saved trip is created and appears in Saved.
+18. Saved trip reopens from the API.
+19. Journal note create and delete work in browser storage.
+20. Saved trip delete works; community report is submitted to moderation.
+21. Provider failure appears in the live-plan UI and does not activate demo data; mobile layout has no horizontal overflow at 390 px.
 
-## Research experiment
+**Browser console errors:** 0  
+**Uncaught page errors:** 0  
+**390 px document scroll width:** 390 px
 
-Command (see README): `python research/run_experiments.py --seeds 5 --instances 8 --candidates 12 --population 64 --generations 60 --output research/results/paper_benchmark`
+The browser test uses a clearly labelled synthetic route for the successful UI walkthrough and a controlled provider failure for the live-error path. It does not make a real live Delhi–Agra query and does not prove external provider uptime.
 
-- 8 fixed synthetic instances.
-- 5 NSGA-II seeds per instance.
-- 4 algorithm variants (40 rows per algorithm; 160 CSV rows total).
-- Exact reference Pareto front via exhaustive enumeration for each 12-candidate instance.
-- Mean three-objective Monte-Carlo hypervolume: NSGA-II 0.255434; nearest-feasible 0.134135; weighted-greedy 0.096785; distance-only 0.054670.
-- Mean six-objective IGD: NSGA-II 0.126492; nearest-feasible 0.441001; weighted-greedy 0.486873; distance-only 0.450815.
+## UI inspection
 
-The raw CSV, JSON summary, textual summary and plotting script are checked in. These data are synthetic only; see `research/DATASET_CARD.md` and the paper's limitations.
+Screenshots generated by the final browser run:
+
+- `rahgir-v3-spec/rahgir-v3-desktop.png`
+- `rahgir-v3-spec/rahgir-v3-mobile.png`
+
+The desktop screenshot shows the planner workspace, explicit synthetic-data banner, provider-check labels, Pareto options and trip metrics. The mobile screenshot shows the same route workspace stacked at 390 px with no horizontal overflow. The map used a schematic fallback in the smoke run because external Leaflet/tile requests were intentionally not loaded in this test environment; this is not evidence that live OSM tiles rendered.
+
+## Research benchmark boundary
+
+The checked-in experiment outputs are generated from fixed synthetic instances and seeds. They are algorithm test fixtures, not Indian road observations, user-study findings or evidence of better real-world travel outcomes. The paper remains a draft; no new empirical claims are made by this UI/engine release.
 
 ## Not verified / remaining blockers
 
-- No live route/POI data for Ghaziabad–Etawah, Delhi–Agra, Delhi–Jaipur, Delhi–Mathura or Mumbai–Pune; outbound DNS/network access was unavailable.
-- No on-ground checks of road geometry, detour time, POI existence, cultural claims or opening hours.
-- No external Leaflet CDN or OSM tile verification from the browser smoke environment.
-- No production database, multi-worker deployment, cross-process provider throttling, load testing, security penetration test or formal accessibility audit.
-- No validated road-segment safety dataset, weather/festival feeds or user-study dataset.
-- Authentication, profile management, several roadmap features, and full permutation-aware itinerary sequencing remain out of scope for this version.
+- Live Nominatim, OSRM and Overpass success for a real user journey was not independently verified from the build environment. Local outbound DNS/network access was unavailable during development.
+- The deployment health endpoint checks configuration; it explicitly does not probe external provider uptime. A successful live trip request is the required external verification.
+- Public OSRM/Overpass/Nominatim are shared, best-effort services and are not a production SLA.
+- No on-ground route/POI/opening-hours validation, formal usability study, accessibility audit, penetration test, load test or multi-instance test is claimed.
+- No verified safety, weather, traffic, crowd, emergency, fuel-stock, EV charger status or hospital-capacity feeds are connected.
+- Saved and Journal are browser-local. Render preview server records currently use SQLite under `/tmp`, which is ephemeral and not durable account storage.
 
-## How to reproduce
+## Reproduce
 
-Run the automated test and benchmark commands from the root README. To verify live providers, configure the required routing credentials/provider endpoints and an identifying `HTTP_USER_AGENT` with contact information, then execute the five-route plan on an approved network and archive raw provider evidence with timestamps and licensing metadata. Do not replace unavailable live data with synthetic fixtures in any report or publication.
+```bash
+pytest -q
+for f in backend/app/static/{core,map,workspace,results,route_actions,planner,app}.js; do node --check "$f"; done
+python -m compileall -q backend/app research scripts
+bash -n scripts/run_local.sh scripts/run_research.sh
+python scripts/browser_smoke.py
+```

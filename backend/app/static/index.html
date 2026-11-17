@@ -12,6 +12,12 @@
   <link rel="stylesheet" href="/static/styles.css" />
   <link rel="stylesheet" href="/static/workspace.css" />
   <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script defer src="/static/core.js"></script>
+  <script defer src="/static/map.js"></script>
+  <script defer src="/static/workspace.js"></script>
+  <script defer src="/static/results.js"></script>
+  <script defer src="/static/route_actions.js"></script>
+  <script defer src="/static/planner.js"></script>
   <script defer src="/static/app.js"></script>
 </head>
 <body>
@@ -28,7 +34,7 @@
       <div class="hero-copy">
         <div class="eyebrow"><span class="eyebrow-line"></span> ROAD-TRIP INTELLIGENCE, REIMAGINED</div>
         <h1>The journey<br/>is <em>the destination.</em></h1>
-        <p>Go beyond the fastest route. Discover the places, craft, food and stories worth a thoughtful detour — with the road data and trade-offs in plain sight.</p>
+        <p>Build a stop sequence that fits your real journey. Compare road-network detours, total time, mapped facilities and your own vehicle cost — before you leave.</p>
         <div class="hero-actions"><a class="button button-primary" href="#planner">Build my journey <span>↗</span></a><a class="text-link" href="#how-it-works">How Rahgir works <span>↓</span></a></div>
         <div class="hero-proof"><div class="proof-avatars"><span>R</span><span>↗</span><span>◎</span></div><div><strong>Evidence before excitement.</strong><small>Every place has a source. Every detour has a cost.</small></div></div>
       </div>
@@ -41,8 +47,8 @@
 
     <section class="value-strip" id="how-it-works">
       <div><span class="value-number">01</span><strong>Real road geometry</strong><small>Not a straight-line guess.</small></div>
-      <div><span class="value-number">02</span><strong>Meaningful discoveries</strong><small>Places mapped along your route.</small></div>
-      <div><span class="value-number">03</span><strong>Honest trade-offs</strong><small>Detours, time and evidence made clear.</small></div>
+      <div><span class="value-number">02</span><strong>Useful corridor stops</strong><small>Fuel, EV, toilets, food and places.</small></div>
+      <div><span class="value-number">03</span><strong>Verified combinations</strong><small>Via-point route, total time and cost.</small></div>
     </section>
 
     <section class="planner-section section-shell" id="planner">
@@ -106,7 +112,30 @@
               <label>Local markets <input type="range" min="0" max="100" value="40" data-pref="shopping"/><b>40</b></label>
               <label>Photography <input type="range" min="0" max="100" value="45" data-pref="photography"/><b>45</b></label>
             </div>
-            <p class="form-note">Family mode is a preference profile, not an accessibility guarantee. Safety data is not currently sufficient to offer a safety-first route.</p>
+            <div class="preference-title"><span>STOP TYPES TO SEARCH</span><small>Only mapped OpenStreetMap places are returned</small></div>
+            <div class="poi-category-grid" role="group" aria-label="Stop and facility categories">
+              <label><input type="checkbox" data-category="heritage" checked/> Heritage</label>
+              <label><input type="checkbox" data-category="culture" checked/> Museums & attractions</label>
+              <label><input type="checkbox" data-category="food" checked/> Food</label>
+              <label><input type="checkbox" data-category="nature" checked/> Nature</label>
+              <label><input type="checkbox" data-category="religion"/> Places of worship</label>
+              <label><input type="checkbox" data-category="shopping"/> Markets & craft</label>
+              <label><input type="checkbox" data-category="fuel" checked/> Fuel</label>
+              <label><input type="checkbox" data-category="ev_charging" checked/> EV charging</label>
+              <label><input type="checkbox" data-category="restroom" checked/> Toilets</label>
+              <label><input type="checkbox" data-category="medical" checked/> Medical</label>
+              <label><input type="checkbox" data-category="vehicle_service"/> Vehicle service</label>
+              <label><input type="checkbox" data-category="parking"/> Parking</label>
+              <label><input type="checkbox" data-category="rest_area" checked/> Rest areas</label>
+            </div>
+            <div class="preference-title"><span>YOUR VEHICLE COST</span><small>Calculated only from figures you enter</small></div>
+            <div class="field-grid two-col vehicle-cost-fields">
+              <label class="field-label">VEHICLE TYPE<select id="vehicle-type"><option value="not_set">Not configured</option><option value="petrol">Petrol</option><option value="diesel">Diesel</option><option value="cng">CNG</option><option value="electric">Electric</option></select></label>
+              <label class="field-label"><span id="vehicle-consumption-label">EFFICIENCY / 100 KM</span><input id="vehicle-consumption" type="number" min="0.1" max="100" step="0.1" placeholder="e.g. 15" disabled/></label>
+              <label class="field-label"><span id="vehicle-price-label">PRICE PER UNIT (₹)</span><input id="vehicle-price" type="number" min="0.1" max="1000" step="0.1" placeholder="Enter current price" disabled/></label>
+            </div>
+            <p class="form-note">Use L/100 km for petrol/diesel, kg/100 km for CNG or kWh/100 km for EV. Enter the price you know today; Rahgir does not invent a fuel price.</p>
+            <p class="form-note">Family mode is a preference profile, not an accessibility guarantee. Live traffic, weather and verified road-safety feeds are not connected.</p>
           </details>
           <button class="button button-primary button-wide" type="submit" id="plan-button">Find my route <span>↗</span></button>
           <label class="field-label demo-select-label">OFFLINE WALKTHROUGH ROUTE<select id="demo-case"><option value="delhi-agra">Delhi → Agra</option><option value="ghaziabad-etawah">Ghaziabad → Etawah</option><option value="delhi-jaipur">Delhi → Jaipur</option><option value="delhi-mathura">Delhi → Mathura</option><option value="mumbai-pune">Mumbai → Pune</option></select></label>
@@ -134,14 +163,14 @@
           <button class="workspace-nav-item" type="button" data-workspace="routes"><span>⌁</span> Routes</button>
           <button class="workspace-nav-item" type="button" data-workspace="saved"><span>▣</span> Saved</button>
           <button class="workspace-nav-item" type="button" data-workspace="journal"><span>▤</span> Journal</button>
-          <button class="workspace-nav-item" type="button" data-workspace="assistant"><span>✳</span> AI Assistant</button>
+
           <div class="workspace-sidebar-bottom"><span>Evidence before excitement.</span><small>Plan with curiosity. Verify before you go.</small><a href="/api/docs" target="_blank" rel="noreferrer">Help & API docs ↗</a><button id="workspace-exit" type="button">← Back to Rahgir home</button></div>
         </aside>
         <div class="workspace-main">
           <div class="workspace-topbar">
             <nav aria-label="Workspace sections"><button type="button" class="active" data-topnav="trips">Trips</button><button type="button" data-topnav="dashboard">Dashboard</button><button type="button" data-topnav="explore">Explore</button></nav>
             <label class="workspace-search"><span>⌕</span><input id="workspace-search" type="search" placeholder="Search stops in this journey…" autocomplete="off"/><kbd>↵</kbd></label>
-            <span class="workspace-status"><i></i><span id="workspace-ai-status">Grounded assistant ready</span></span>
+            <span class="workspace-status"><i></i><span id="workspace-provider-status">Checking route services</span></span>
           </div>
           <div id="workspace-dashboard">
             <div class="workspace-context" id="workspace-context"><span class="context-mark">✳</span><span><b id="workspace-route-name">Your route workspace</b><small>Provider estimates · mapped evidence · explicit unknowns</small></span><button type="button" id="workspace-back-to-top">↑ Back to top</button></div>
@@ -156,18 +185,18 @@
       <div class="itinerary-layout">
         <div class="itinerary-main"><div class="panel-heading"><div><span class="card-kicker">YOUR SELECTED ITINERARY</span><h3 id="selected-label">Balanced route</h3></div><span class="status-chip" id="feasible-chip">Constraints satisfied</span></div><div id="stop-list" class="stop-list"></div><div id="empty-stops" class="empty-state" hidden><span>✳</span><strong>A direct journey.</strong><p>Your current limits leave no feasible detours. Increase the budget to explore more.</p></div>
           <details class="not-selected-details"><summary>Why not these other places? <span>Review route-fit checks for every mapped candidate</span></summary><div id="not-selected-list" class="not-selected-list"></div></details>
-          <section class="trip-assistant-card" id="trip-assistant" aria-labelledby="assistant-title">
-            <div class="assistant-heading"><div><span class="card-kicker">YOUR ROAD COMPANION</span><h3 id="assistant-title">Ask Rahgir about this trip.</h3><p>Answers are grounded in this itinerary. Missing facts stay unknown.</p></div><span class="assistant-mark">✳</span></div>
-            <div id="assistant-messages" class="assistant-messages" aria-live="polite"><div class="assistant-message assistant-bot"><b>Rahgir</b><p>I can explain selected stops, estimated arrival times, route trade-offs and what the mapped data does or does not tell us.</p></div></div>
-            <form id="assistant-form" class="assistant-form"><input id="assistant-question" maxlength="500" required placeholder="Ask about a stop, ETA, route trade-off…" autocomplete="off"/><button type="submit" id="assistant-send" aria-label="Send question">↑</button></form>
-            <div class="assistant-footnote" id="assistant-footnote">Grounded local mode · No API key required. Optional OpenRouter model can be enabled later.</div>
+          <section class="route-proof-card" id="route-proof-panel" aria-labelledby="route-proof-title">
+            <div class="route-proof-heading"><div><span class="card-kicker">PROVIDER-VERIFIED ROUTE</span><h3 id="route-proof-title">Did the full stop sequence fit?</h3><p>A plan is not confirmed until the routing provider checks the complete via-point route.</p></div><span class="route-proof-mark">✓</span></div>
+            <div id="route-proof-result" class="route-proof-result" aria-live="polite">Choose an itinerary to inspect its final route check.</div>
           </section>
         </div>
         <aside class="insight-rail"><div id="workspace-map-slot"></div><div class="insight-card"><span class="card-kicker">THE HONEST VIEW</span><h3>What we know — and what we don't.</h3><div id="safety-insight" class="insight-item"><span class="insight-icon">◇</span><div><b>Safety evidence unavailable</b><p>No verified segment-level safety dataset is connected. Missing reports do not mean a road is safe.</p></div></div><div id="weather-insight" class="insight-item"><span class="insight-icon">☼</span><div><b>Weather not considered</b><p>Forecast data is not part of this plan. Check local advisories before departure.</p></div></div><div class="insight-divider"></div><div class="insight-item"><span class="insight-icon">ⓘ</span><div><b>Opening hours</b><p>Unknown hours stay unknown. Verify directly before visiting.</p></div></div></div>
           <div class="whatif-card"><span class="card-kicker">WHAT-IF SIMULATOR</span><h3>Try a different version of the day.</h3><label for="whatif-budget">New detour budget <strong><span id="whatif-value">60</span> min</strong></label><input id="whatif-budget" type="range" min="0" max="180" step="5" value="60"/><label class="whatif-time-label" for="whatif-departure">What if you leave at a different time?<input id="whatif-departure" type="datetime-local"/></label><p class="small-note">Changing departure time recomputes ETA and supported opening-hours checks. Traffic, weather and sunset are not inferred unless a provider is connected.</p><button id="whatif-button" class="button button-primary button-wide" type="button">Recalculate itinerary ↗</button><p id="whatif-note" class="small-note">This reruns the itinerary optimizer; it does not just alter the displayed score.</p></div>
         </aside>
       </div>
-      <section class="candidate-explorer" aria-labelledby="candidate-heading"><div class="panel-heading"><div><span class="card-kicker">ALONG YOUR ROAD</span><h3 id="candidate-heading">Every mapped place considered.</h3><p class="small-note">Single-stop detours are checked with directed road-network legs. Combined feasibility depends on the chosen itinerary.</p></div><span class="candidate-count" id="candidate-count">0 places</span></div><div class="candidate-filters" role="group" aria-label="Filter candidate places"><button type="button" data-filter="all" class="filter-chip active" aria-pressed="true">All</button><button type="button" data-filter="heritage" class="filter-chip" aria-pressed="false">Heritage</button><button type="button" data-filter="food" class="filter-chip" aria-pressed="false">Food</button><button type="button" data-filter="nature" class="filter-chip" aria-pressed="false">Nature</button><button type="button" data-filter="craft" class="filter-chip" aria-pressed="false">Craft & markets</button><button type="button" data-filter="other" class="filter-chip" aria-pressed="false">Other</button></div><div id="candidate-grid" class="candidate-grid"></div><div id="candidate-empty" class="empty-state" hidden>No candidates match this filter.</div></section>
+      <section class="candidate-explorer" aria-labelledby="candidate-heading"><div class="panel-heading"><div><span class="card-kicker">ALONG YOUR ROAD</span><h3 id="candidate-heading">Every mapped place considered.</h3><p class="small-note">Single-stop detours are checked with directed road-network legs. Combined feasibility depends on the chosen itinerary.</p></div><span class="candidate-count" id="candidate-count">0 places</span></div><div class="candidate-filters" role="group" aria-label="Filter candidate places"><button type="button" data-filter="all" class="filter-chip active" aria-pressed="true">All</button><button type="button" data-filter="facilities" class="filter-chip" aria-pressed="false">Road facilities</button><button type="button" data-filter="food" class="filter-chip" aria-pressed="false">Food</button><button type="button" data-filter="heritage" class="filter-chip" aria-pressed="false">Heritage & culture</button><button type="button" data-filter="nature" class="filter-chip" aria-pressed="false">Nature</button><button type="button" data-filter="shopping" class="filter-chip" aria-pressed="false">Markets</button><button type="button" data-filter="other" class="filter-chip" aria-pressed="false">Other</button></div>
+        <div class="custom-route-builder"><div><span class="card-kicker">BUILD YOUR OWN STOP SET</span><h3>Make your own route.</h3><p>Select mapped places above. Rahgir orders selected stops along the direction of travel, then re-routes the entire sequence to test cumulative detour and journey-time limits.</p><span id="custom-stop-count" class="small-note">0 stops selected</span></div><div class="custom-route-actions"><button id="validate-custom-route" class="button button-primary" type="button">Check this route ↗</button><button id="apply-custom-route" class="button button-outline" type="button" disabled>Use validated route</button></div><div id="custom-route-result" class="custom-route-result" role="status" aria-live="polite">No custom route has been checked yet.</div></div>
+        <div id="candidate-grid" class="candidate-grid"></div><div id="candidate-empty" class="empty-state" hidden>No candidates match this filter.</div></section>
             </div><!-- /.results-content -->
           </div><!-- /#workspace-dashboard -->
           <section id="workspace-saved" class="workspace-secondary-view" hidden>
