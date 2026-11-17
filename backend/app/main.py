@@ -27,9 +27,10 @@ from .config import settings
 from .database import CommunityReport, SessionLocal, SharedTrip, TripRecord, get_session, init_db, serialise_trip
 from .engine.geometry import haversine_m
 from .engine.planner import RoutePlanner
-from .schemas import ModerationRequest, PlanRequest, ReportRequest, WhatIfRequest, RoutePreviewRequest
+from .schemas import ModerationRequest, PlanRequest, ReportRequest, WhatIfRequest, RoutePreviewRequest, AskTripRequest
 from .services.demo import DEMO_CASES, DemoProviders, get_demo_case
 from .services.providers import ExternalProviders, ProviderError
+from .services.assistant import answer_trip_question
 
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -44,7 +45,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Rahgir Road-Trip Intelligence",
     description="Evidence-aware, route-corridor POI discovery and deterministic multi-objective itinerary planning.",
-    version="0.1.0",
+    version="0.2.0",
     docs_url="/api/docs",
     redoc_url="/api/redoc",
     lifespan=lifespan,
@@ -138,6 +139,8 @@ def health():
         "geocoder_provider_configured": settings.geocoder_provider,
         "overpass_configured": bool(settings.overpass_url),
         "external_providers_probed": False,
+        "trip_assistant": "openrouter_configured" if settings.openrouter_api_key else "grounded_local_mode",
+        "wikipedia_enrichment": settings.wikipedia_enrichment,
         "note": "Health confirms process readiness only; external providers are checked when a trip is planned.",
     }
 
@@ -206,6 +209,18 @@ async def replan_trip(trip_id: str, session: Session = Depends(get_session)):
 @app.post("/api/v1/trips/{trip_id}/what-if")
 async def what_if_trip(trip_id: str, body: WhatIfRequest, session: Session = Depends(get_session)):
     return await _recompute_trip(trip_id, body.model_dump(exclude_unset=True), session)
+
+
+
+
+@app.post("/api/v1/trips/{trip_id}/ask")
+async def ask_trip_question(trip_id: str, body: AskTripRequest, session: Session = Depends(get_session)):
+    record = session.get(TripRecord, trip_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Trip not found")
+    result = json.loads(record.result_json)
+    answer = await answer_trip_question(body.question.strip(), body.history, result)
+    return answer
 
 
 @app.post("/api/v1/trips/{trip_id}/route-preview")

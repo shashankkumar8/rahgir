@@ -80,3 +80,52 @@ def test_provider_rate_limit_is_reported(monkeypatch):
             asyncio.run(adapter.route([(28.6, 77.2), (28.7, 77.3)]))
     finally:
         asyncio.run(client.aclose())
+
+
+def test_wikipedia_enrichment_requires_explicit_osm_tag_and_validates_thumbnail(monkeypatch):
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        return httpx.Response(200, json={
+            "title": "Test Heritage Site",
+            "extract": "A source-linked short context paragraph.",
+            "thumbnail": {"source": "https://upload.wikimedia.org/wikipedia/commons/thumb/a/ab/Test.jpg/320px-Test.jpg"},
+            "content_urls": {"desktop": {"page": "https://en.wikipedia.org/wiki/Test_Heritage_Site"}},
+        })
+
+    monkeypatch.setattr(provider_module, "settings", replace(provider_module.settings, wikipedia_enrichment=True, http_user_agent="Rahgir tests"))
+    client = make_client(handler)
+    adapter = ExternalProviders(client=client)
+    pois = [
+        {"id": "node/1", "name": "Test Heritage Site", "tags": {"wikipedia": "en:Test_Heritage_Site"}},
+        {"id": "node/2", "name": "Another Site", "tags": {}},
+    ]
+    try:
+        enriched = asyncio.run(adapter.enrich_pois(pois))
+        assert enriched[0]["story_summary"] == "A source-linked short context paragraph."
+        assert enriched[0]["image_url"].startswith("https://upload.wikimedia.org/")
+        assert enriched[0]["wikipedia_url"] == "https://en.wikipedia.org/wiki/Test_Heritage_Site"
+        assert "story_summary" not in enriched[1]
+        assert len(calls) == 1
+    finally:
+        asyncio.run(client.aclose())
+
+
+def test_wikipedia_enrichment_rejects_non_wikimedia_thumbnail(monkeypatch):
+    def handler(request):
+        return httpx.Response(200, json={
+            "extract": "Grounded article summary.",
+            "thumbnail": {"source": "https://untrusted.example/tracker.jpg"},
+            "content_urls": {"desktop": {"page": "https://en.wikipedia.org/wiki/Another_Test_Page"}},
+        })
+
+    monkeypatch.setattr(provider_module, "settings", replace(provider_module.settings, wikipedia_enrichment=True))
+    client = make_client(handler)
+    adapter = ExternalProviders(client=client)
+    try:
+        result = asyncio.run(adapter.enrich_pois([{"id": "node/3", "name": "Another test", "tags": {"wikipedia": "en:Another_Test_Page"}}]))[0]
+        assert result["story_summary"] == "Grounded article summary."
+        assert result["image_url"] is None
+    finally:
+        asyncio.run(client.aclose())

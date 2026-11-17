@@ -143,6 +143,15 @@ class RoutePlanner:
         filtered.sort(key=lambda p: (-p["cultural_value"], -p["metadata_completeness"], p["corridor_distance_m"], p["id"]))
         candidates = filtered[: settings.max_pois]
         candidates.sort(key=lambda p: (p["route_progress"], p["id"]))
+        # Optional article and thumbnail enrichment is strictly linked by an OSM
+        # wikipedia tag; it never guesses an article from a place name.
+        if candidates and hasattr(self.providers, "enrich_pois"):
+            try:
+                candidates = await self.providers.enrich_pois(candidates)
+            except Exception:
+                # Enrichment is additive only. A media/context outage cannot block
+                # route calculation or change feasibility and ranking.
+                pass
 
         coords = [origin_xy] + [(p["latitude"], p["longitude"]) for p in candidates] + [destination_xy]
         matrix_result = await self.providers.matrix(coords) if candidates else {
@@ -574,4 +583,9 @@ class RoutePlanner:
             "route_progress": round(poi["route_progress"], 6),
             "metadata_completeness": poi["metadata_completeness"],
             "cultural_value_heuristic": poi["cultural_value"],
+            "story_summary": poi.get("story_summary"),
+            "wikipedia_url": poi.get("wikipedia_url"),
+            "image_url": poi.get("image_url"),
+            "image_attribution": poi.get("image_attribution"),
+            "story_source": poi.get("story_source"),
         }

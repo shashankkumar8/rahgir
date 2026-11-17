@@ -6,6 +6,16 @@ Rahgir is an evidence-aware road-trip discovery and itinerary-planning applicati
 
 > **Important status statement:** This repository is a working research prototype. Live provider adapters are implemented, but this build environment had no outbound DNS/network access, so the five named Indian city-pair routes were not validated against live providers or on the ground. The offline walkthrough is synthetic, conspicuously labelled, and must never be used for navigation, safety decisions, real POI claims, or research outcome data. The paper draft reports only the synthetic optimisation benchmark and clearly states the limitations.
 
+## Version 2 experience
+
+Rahgir now has a journey workspace in addition to the public landing page. The reference workflow is covered by a route-creation form, multi-select travel interests, a split itinerary/map experience, stop story cards, dashboard navigation, saved journeys, a browser-local travel journal, and a trip-aware conversation panel. The map and itinerary remain connected: selecting a Pareto alternative redraws the selected stop route where the route provider supports it. A Google Maps directions link is shown for live-provider trips only; it is suppressed for synthetic fixtures.
+
+Stop story/photo enrichment is opt-in and conservative: it runs only when an OpenStreetMap POI includes an explicit `wikipedia=en:...` tag. Rahgir does not fuzzy-match place names or invent a story/photo. A place without a linked article is shown with an explicit no-source-context message. Thumbnail URLs are restricted to Wikimedia upload hosts and the article link is shown with the card.
+
+The trip assistant works without a key using deterministic answers from the saved trip record. Set `OPENROUTER_API_KEY` to enable optional OpenRouter-assisted phrasing; the model receives the trip record as untrusted grounding data, is instructed not to fill evidence gaps, and falls back to local rules if the optional service fails. The route planner and optimizer never depend on the LLM.
+
+Saved journeys are a browser-local index of server trip IDs; journal entries are stored in browser local storage. This is not a synced account or durable cloud backup. On the current Render free preview, the backend SQLite database is ephemeral, so a saved trip may stop reopening after a service restart. Do not treat these local convenience features as production account persistence.
+
 ## What is implemented
 
 - **Live-provider route planning:** Nominatim geocoding; OSRM or OpenRouteService directions and duration/distance matrix; Overpass POI discovery in a route corridor.
@@ -21,11 +31,11 @@ Rahgir is an evidence-aware road-trip discovery and itinerary-planning applicati
 - **Community reports:** submissions, rate limiting, near-duplicate flagging, admin moderation, evidence URL required before marking a report verified, audit-relevant fields. Reports do not feed a road-safety score.
 - **Trip persistence and actions:** local SQLite storage, actual what-if recomputation, selected-stop route preview, token-hashed read-only share links with revocation, PDF itinerary export.
 - **Research harness:** deterministic synthetic instances, exact Pareto reference front for small instances, NSGA-II and simple baselines, hypervolume/IGD, cluster bootstrap intervals and exact paired sign-flip inference. Synthetic and live data are separate.
-- **Responsive web UI:** editorial travel-focused visual system; route map with attribution when Leaflet/tile service loads; explicit schematic fallback and warning when map tiles/library are unavailable; Pareto persona cards; route-pulse timeline; “Why / why not?” decision explanations; filterable candidate explorer; report form; read-only sharing and PDF export. The map fallback updates route state too, so unavailable tiles are not mistaken for a live map.
+- **Responsive web UI:** editorial landing page and application-style workspace with Dashboard / Routes / Saved / Journal / AI Assistant navigation; responsive split map and itinerary; multi-select theme chips; source-linked stop photos/story cards when explicit Wikipedia metadata exists; trip Q&A; browser-local saved journey and journal views; editable route filters; editorial travel-focused visual system; route map with attribution when Leaflet/tile service loads; explicit schematic fallback and warning when map tiles/library are unavailable; Pareto persona cards; route-pulse timeline; “Why / why not?” decision explanations; filterable candidate explorer; report form; read-only sharing and PDF export. The map fallback updates route state too, so unavailable tiles are not mistaken for a live map.
 
 ## Not implemented yet — do not imply otherwise
 
-The supplied master build prompt lists a much wider roadmap than can be truthfully claimed as complete in this build. The following remain future work: authenticated user accounts and saved preference profiles; complete dynamic rerouting from verified incidents; validated road-segment safety datasets and heatmaps; actual weather/festival/crowd feeds; fuel/EV/restroom/hospital facility search; emergency mode; image-upload and image moderation; voice and multilingual assistant; LLM/RAG Q&A; vector database; full permutation-aware stop-order optimisation; full adaptive urban/rural POI sampling; provider-backed base-route alternatives; production PostGIS/Redis deployment; dedicated admin UI; user studies and field validation. The backend uses SQLite for local persistence. No LLM is used in the current planning or ranking path.
+The supplied master build prompt lists a much wider roadmap than can be truthfully claimed as complete in this build. The following remain future work: authenticated user accounts and server-synced preferences; durable production database and persistent media storage; complete dynamic rerouting from verified incidents; validated road-segment safety datasets and heatmaps; actual weather/festival/crowd feeds; fuel/EV/restroom/hospital facility search; emergency mode; image-upload and image moderation; voice and multilingual assistant; vector search/RAG over a maintained knowledge base; full permutation-aware stop-order optimisation; full adaptive urban/rural POI sampling; provider-backed base-route alternatives; dedicated admin UI; user studies and field validation. The backend currently uses SQLite. No LLM is used in the route planning or ranking path; the optional chat layer is separate.
 
 ## Quick start (Windows PowerShell)
 
@@ -71,7 +81,11 @@ See [`.env.example`](.env.example) for the full list. Core settings:
 | Variable | Default | Purpose |
 |---|---|---|
 | `ROUTING_PROVIDER` | `osrm` | `osrm` or `ors` |
-| `ORS_API_KEY` | empty | Required for ORS |
+| `ORS_API_KEY` | empty | Required for ORS routing/matrix calls |
+| `OPENROUTER_API_KEY` | empty | Optional trip assistant; omit for deterministic local answers |
+| `OPENROUTER_MODEL` | `openrouter/auto` | Optional model routing for the chat layer |
+| `OPENROUTER_BASE_URL` | OpenRouter API | Optional chat API base URL |
+| `WIKIPEDIA_ENRICHMENT` | `true` | Fetch article context only for explicit OSM Wikipedia tags |
 | `GEOCODER_PROVIDER` | `nominatim` | Currently supported geocoder |
 | `NOMINATIM` / `GEOCODER_BASE_URL` | public endpoint | Configurable base URL |
 | `OVERPASS_URL` | public Overpass instance | Configurable POI endpoint |
@@ -207,6 +221,6 @@ This test executes the real HTML/CSS/JavaScript in Chromium and routes the app's
 
 ## Deployment
 
-A Render Blueprint is included in [`render.yaml`](render.yaml); see [`DEPLOYMENT.md`](DEPLOYMENT.md) before applying it. The included free-tier preview uses ephemeral SQLite under `/tmp`, so persisted trips/reports/share links can disappear on service restart or redeploy. Do not use this configuration for durable production usage. Live public map providers remain rate-limited and best-effort; configure a valid operator contact in `HTTP_USER_AGENT` before live geocoding.
+A Render Blueprint is included in [`render.yaml`](render.yaml); see [`DEPLOYMENT.md`](DEPLOYMENT.md) before applying it. The currently deployed free preview has `GEOCODER_PROVIDER=disabled` until a real operator contact is configured; use the synthetic walkthrough to inspect the product without claiming live location data. The included free-tier preview uses ephemeral SQLite under `/tmp`, so persisted trips/reports/share links can disappear on service restart or redeploy. Do not use this configuration for durable production usage. Live public map providers remain rate-limited and best-effort; configure a valid operator contact in `HTTP_USER_AGENT` before live geocoding.
 
 GitHub Actions CI is configured in `.github/workflows/ci.yml` to run pytest and validate the browser JavaScript syntax on pushes and pull requests to `main`.

@@ -9,6 +9,9 @@ This repository includes a Render Blueprint at `render.yaml`.
 - The application is a research prototype. The current safety subsystem intentionally reports `insufficient_evidence`; it must not be marketed as a safe-navigation product.
 - The live provider adapters use public OSM/Nominatim/Overpass and OSRM defaults. These are not a production SLA. Set a valid identifying `HTTP_USER_AGENT` with an operator contact before enabling live geocoding. Follow the providers' usage policies and attribution requirements. Do not add autocomplete or bulk geocoding to public Nominatim.
 - Do not add API keys or secrets to Git. Configure them in the Render environment.
+- The trip assistant runs in deterministic local-grounded mode unless `OPENROUTER_API_KEY` is set. When enabled, set `OPENROUTER_API_KEY` and optionally `OPENROUTER_MODEL` / `OPENROUTER_BASE_URL` in Render; never paste a secret into Git or a chat message.
+- `WIKIPEDIA_ENRICHMENT=true` enables optional article summaries and thumbnails only where an OSM place explicitly contains a `wikipedia=en:...` tag. It does not infer Wikipedia pages from names.
+- Saved journey IDs and journal entries are browser-local. On the free preview, server trip records remain ephemeral because SQLite is under `/tmp`.
 
 ## Deploy steps
 
@@ -16,9 +19,9 @@ This repository includes a Render Blueprint at `render.yaml`.
 2. In Render, choose **New → Blueprint** and connect that repository.
 3. Render reads `render.yaml` and previews a single `rahgir` web service. Review the plan/region before applying.
 4. During the first setup, provide `HTTP_USER_AGENT` with a real project/operator contact. Render generates `ADMIN_TOKEN`; retrieve it securely from the service's environment settings when moderation is needed. Never publish it.
-5. Apply the Blueprint and wait for the service deploy to finish.
+5. Apply the Blueprint and wait for the service deploy to finish. The current manually created preview has geocoding disabled until a real operator contact is configured; set `GEOCODER_PROVIDER=nominatim` and a proper `HTTP_USER_AGENT` only after you have added the contact string and reviewed public Nominatim usage limits.
 6. Check `https://<your-service>.onrender.com/api/v1/health`. A successful response confirms process readiness only; it does not probe OSRM, Nominatim or Overpass.
-7. Open the root URL and use **Try synthetic walkthrough** to verify the product UI. Synthetic route/POI values are clearly labelled and must never be used for real navigation or research outcome data.
+7. Open the root URL. Use **Try synthetic walkthrough** to verify the product UI. It exercises the workspace, map fallback, saved-trip browser index, local journal and grounded trip assistant without external map providers. Synthetic route/POI values are clearly labelled and must never be used for real navigation or research outcome data.
 
 ## Before production use
 

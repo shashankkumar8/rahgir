@@ -1,7 +1,11 @@
 /* Rahgir client: no LLM SDK, no hidden scoring service. */
 (() => {
   const $ = (id) => document.getElementById(id);
-  const state = { tripId: null, result: null, activeAlternative: null, map: null, routeLayer: null, stopLayer: null, candidateLayer: null, endpointLayer: null, candidateMarkers: {}, selectedCoordinates: null, shareToken: null, candidateFilter: 'all' };
+  const state = { tripId: null, result: null, activeAlternative: null, map: null, routeLayer: null, stopLayer: null, candidateLayer: null, endpointLayer: null, candidateMarkers: {}, selectedCoordinates: null, shareToken: null, candidateFilter: 'all', candidateSearch: '', assistantHistory: [], workspaceView: 'dashboard', savedTrips: [], journalEntries: {} };
+  const SAVED_KEY = 'rahgir.savedTrips.v2';
+  const JOURNAL_KEY = 'rahgir.journal.v2';
+  const DEFAULT_PREFERENCES = { culture: 80, history: 70, food: 60, nature: 50, religion: 65, shopping: 40, photography: 45 };
+  const VIBE_PREFERENCES = { food: { food: 94 }, heritage: { culture: 94, history: 94 }, spiritual: { religion: 96 }, markets: { shopping: 94 }, nature: { nature: 94 }, photography: { photography: 94 } };
   const API = '/api/v1';
 
   function showToast(message) {
@@ -61,6 +65,8 @@
       const health = await api('/health');
       $('api-status').textContent = 'API online · ' + health.routing_provider_configured.toUpperCase() + ' selected';
       $('route-status').textContent = 'Ready to plan';
+      $('workspace-ai-status').textContent = health.trip_assistant === 'openrouter_configured' ? 'AI companion connected' : 'Grounded assistant ready';
+      $('assistant-footnote').textContent = health.trip_assistant === 'openrouter_configured' ? 'Optional OpenRouter model connected · Responses are constrained to saved itinerary evidence.' : 'Grounded local mode · No API key required. Add OPENROUTER_API_KEY to enable optional AI wording.';
     } catch (_) {
       $('api-status').textContent = 'API unavailable';
       $('route-status').textContent = 'Start the local API';
@@ -178,12 +184,249 @@
     $('map-title').textContent = `${result.origin.label.split(',')[0]} → ${result.destination.label.split(',')[0]}`;
     $('route-status').textContent = demo ? 'Synthetic walkthrough' : 'Road route calculated';
     $('data-freshness').textContent = new Date(result.data_integrity.retrieved_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+    const directions = $('google-route-link');
+    const validEndpoints = Number.isFinite(Number(result.origin.latitude)) && Number.isFinite(Number(result.origin.longitude)) && Number.isFinite(Number(result.destination.latitude)) && Number.isFinite(Number(result.destination.longitude));
+    if (directions && !demo && validEndpoints) {
+      const waypoints = (alternative?.stops || []).slice(0, 8).map((stop) => `${Number(stop.latitude)},${Number(stop.longitude)}`).join('|');
+      const params = new URLSearchParams({ api: '1', origin: `${result.origin.latitude},${result.origin.longitude}`, destination: `${result.destination.latitude},${result.destination.longitude}`, travelmode: 'driving' });
+      if (waypoints) params.set('waypoints', waypoints);
+      directions.href = `https://www.google.com/maps/dir/?${params.toString()}`;
+      directions.hidden = false;
+    } else if (directions) {
+      directions.hidden = true;
+      directions.removeAttribute('href');
+    }
   }
 
   function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
   function escapeAttr(value) { return escapeHtml(value).replace(/javascript:/gi, ''); }
+
+  function safeHttpsUrl(value, allowedHosts = null) {
+    try {
+      const parsed = new URL(String(value || ''), window.location.origin);
+      if (parsed.protocol !== 'https:') return '';
+      if (allowedHosts && !allowedHosts.includes(parsed.hostname)) return '';
+      return parsed.toString();
+    } catch (_) { return ''; }
+  }
+
+  function trustedImageUrl(value) {
+    return safeHttpsUrl(value, ['upload.wikimedia.org']);
+  }
+
+  function readStorage(key, fallback) {
+    try {
+      const raw = window.localStorage.getItem(key);
+      return raw ? JSON.parse(raw) : fallback;
+    } catch (_) { return fallback; }
+  }
+
+  function writeStorage(key, value) {
+    try { window.localStorage.setItem(key, JSON.stringify(value)); return true; }
+    catch (_) { showToast('Browser storage is unavailable or full. Your data was not saved.'); return false; }
+  }
+
+  function enterWorkspace(view = 'dashboard') {
+    $('results').hidden = false;
+    document.body.classList.add('workspace-active');
+    const mapCard = $('map-card');
+    if (mapCard && $('workspace-map-slot') && mapCard.parentElement !== $('workspace-map-slot')) $('workspace-map-slot').appendChild(mapCard);
+    setWorkspaceView(view);
+    window.setTimeout(() => { if (state.map) state.map.invalidateSize(); }, 140);
+  }
+
+  function exitWorkspace() {
+    document.body.classList.remove('workspace-active');
+    const mapCard = $('map-card');
+    if (mapCard && $('planner-map-slot') && mapCard.parentElement !== $('planner-map-slot')) $('planner-map-slot').appendChild(mapCard);
+    $('results').hidden = true;
+    $('planner').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    window.setTimeout(() => { if (state.map) state.map.invalidateSize(); }, 180);
+  }
+
+  function setWorkspaceView(view) {
+    state.workspaceView = view;
+    const showSaved = view === 'saved';
+    const showJournal = view === 'journal';
+    $('workspace-dashboard').hidden = showSaved || showJournal;
+    $('workspace-saved').hidden = !showSaved;
+    $('workspace-journal').hidden = !showJournal;
+    document.querySelectorAll('[data-workspace]').forEach((button) => button.classList.toggle('active', button.dataset.workspace === view));
+    document.querySelectorAll('[data-topnav]').forEach((button) => {
+      const target = button.dataset.topnav;
+      const active = (view === 'dashboard' || view === 'routes' || view === 'assistant') ? target === 'trips' : view === 'saved' ? target === 'dashboard' : target === 'explore';
+      button.classList.toggle('active', active);
+    });
+    if (showSaved) renderSavedTrips();
+    if (showJournal) renderJournal();
+    if (view === 'routes' && state.result) window.setTimeout(() => $('stop-list').scrollIntoView({ behavior: 'smooth', block: 'start' }), 70);
+    if (view === 'assistant' && state.result) window.setTimeout(() => $('trip-assistant').scrollIntoView({ behavior: 'smooth', block: 'center' }), 70);
+    if (view === 'dashboard' && state.result) window.setTimeout(() => $('workspace-context').scrollIntoView({ behavior: 'smooth', block: 'start' }), 70);
+    if (view === 'assistant' && !state.tripId) showToast('Plan or open a saved trip before asking trip-specific questions.');
+  }
+
+  function applyVibePreferences() {
+    const active = [...document.querySelectorAll('[data-vibe].active')].map((button) => button.dataset.vibe);
+    const values = { ...DEFAULT_PREFERENCES };
+    active.forEach((vibe) => Object.entries(VIBE_PREFERENCES[vibe] || {}).forEach(([key, score]) => { values[key] = Math.max(values[key] || 0, score); }));
+    document.querySelectorAll('[data-pref]').forEach((input) => {
+      input.value = String(values[input.dataset.pref] ?? DEFAULT_PREFERENCES[input.dataset.pref] ?? 50);
+      const label = input.parentElement.querySelector('b');
+      if (label) label.textContent = input.value;
+    });
+  }
+
+  function renderSavedTrips() {
+    const container = $('saved-trip-list');
+    const saved = state.savedTrips.slice().sort((a, b) => (b.savedAt || '').localeCompare(a.savedAt || ''));
+    if (!saved.length) {
+      container.innerHTML = '<div class="saved-empty">No saved journeys yet. Plan a route and choose <b>Save journey</b> to keep it here on this device.</div>';
+      return;
+    }
+    container.innerHTML = saved.map((trip) => `<article class="saved-trip-card"><span class="saved-trip-meta">SAVED ${escapeHtml(new Date(trip.savedAt).toLocaleString())}</span><h3>${escapeHtml(trip.origin)} <span aria-hidden="true">→</span> ${escapeHtml(trip.destination)}</h3><p>${escapeHtml(trip.mode || 'Road journey')} · Trip ID ${escapeHtml(String(trip.tripId).slice(0, 8))}</p><div class="saved-trip-actions"><button type="button" data-open-saved="${escapeAttr(trip.tripId)}">Open journey ↗</button><button type="button" class="danger" data-delete-saved="${escapeAttr(trip.tripId)}">Remove</button></div></article>`).join('');
+    container.querySelectorAll('[data-open-saved]').forEach((button) => button.addEventListener('click', async () => {
+      button.disabled = true;
+      try {
+        const wrapper = await api(`/trips/${encodeURIComponent(button.dataset.openSaved)}`);
+        renderResults(wrapper);
+        showToast('Saved journey reopened.');
+      } catch (error) { showToast(`This trip could not be restored: ${error.message}. The server may have restarted and cleared its temporary database.`); }
+      finally { button.disabled = false; }
+    }));
+    container.querySelectorAll('[data-delete-saved]').forEach((button) => button.addEventListener('click', () => {
+      state.savedTrips = state.savedTrips.filter((trip) => trip.tripId !== button.dataset.deleteSaved);
+      writeStorage(SAVED_KEY, state.savedTrips);
+      renderSavedTrips();
+      showToast('Removed from this browser’s saved list.');
+    }));
+  }
+
+  function saveCurrentTrip() {
+    if (!state.tripId || !state.result) { showToast('Plan a journey before saving it.'); return; }
+    const trip = {
+      tripId: state.tripId,
+      origin: state.result.origin?.label || 'Origin unavailable',
+      destination: state.result.destination?.label || 'Destination unavailable',
+      mode: state.activeAlternative?.label || 'Road journey',
+      savedAt: new Date().toISOString(),
+    };
+    state.savedTrips = [trip, ...state.savedTrips.filter((item) => item.tripId !== state.tripId)].slice(0, 60);
+    if (writeStorage(SAVED_KEY, state.savedTrips)) {
+      $('save-trip').textContent = 'Saved ✓';
+      renderSavedTrips();
+      showToast('Journey saved to this browser.');
+    }
+  }
+
+  function renderJournal() {
+    const container = $('journal-entry-list');
+    const entries = state.tripId ? (state.journalEntries[state.tripId] || []) : [];
+    if (!entries.length) {
+      container.innerHTML = '<div class="saved-empty">No notes for this journey yet. Add a reminder, place to verify, or memory you want to keep.</div>';
+      return;
+    }
+    container.innerHTML = entries.slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map((entry) => `<article class="journal-entry"><h3>${escapeHtml(entry.title)}</h3><p>${escapeHtml(entry.body)}</p><footer><time>${escapeHtml(new Date(entry.createdAt).toLocaleString())}</time><button type="button" data-delete-note="${escapeAttr(entry.id)}">Delete note</button></footer></article>`).join('');
+    container.querySelectorAll('[data-delete-note]').forEach((button) => button.addEventListener('click', () => {
+      const key = state.tripId;
+      state.journalEntries[key] = (state.journalEntries[key] || []).filter((entry) => entry.id !== button.dataset.deleteNote);
+      writeStorage(JOURNAL_KEY, state.journalEntries);
+      renderJournal();
+    }));
+  }
+
+  function saveJournalNote(event) {
+    event.preventDefault();
+    if (!state.tripId) { $('journal-status').textContent = 'Open a saved trip or plan one before adding a note.'; return; }
+    const title = $('journal-note-title').value.trim();
+    const body = $('journal-note-body').value.trim();
+    if (!title || !body) return;
+    const entry = { id: (window.crypto?.randomUUID?.() || `note-${Date.now()}`), title: title.slice(0, 90), body: body.slice(0, 2000), createdAt: new Date().toISOString() };
+    state.journalEntries[state.tripId] = [entry, ...(state.journalEntries[state.tripId] || [])].slice(0, 100);
+    if (writeStorage(JOURNAL_KEY, state.journalEntries)) {
+      $('journal-form').reset();
+      $('journal-status').textContent = 'Saved locally in this browser. It is not synced or uploaded.';
+      renderJournal();
+      showToast('Journal note saved on this device.');
+    }
+  }
+
+  function appendAssistantMessage(role, content, grounding = []) {
+    const box = $('assistant-messages');
+    const message = document.createElement('div');
+    message.className = `assistant-message ${role === 'user' ? 'assistant-user' : 'assistant-bot'}`;
+    const label = document.createElement('b');
+    label.textContent = role === 'user' ? 'You' : 'Rahgir';
+    const text = document.createElement('p');
+    text.textContent = String(content || 'No answer returned.');
+    message.append(label, text);
+    const links = [...new Set((grounding || []).filter((url) => typeof url === 'string').map((url) => safeHttpsUrl(url)).filter(Boolean))].slice(0, 4);
+    if (links.length) {
+      const sources = document.createElement('div');
+      sources.className = 'assistant-sources';
+      links.forEach((url, index) => {
+        const anchor = document.createElement('a'); anchor.href = url; anchor.target = '_blank'; anchor.rel = 'noreferrer'; anchor.textContent = `Source ${index + 1} ↗`; sources.append(anchor);
+      });
+      message.append(sources);
+    }
+    box.append(message);
+    box.scrollTop = box.scrollHeight;
+  }
+
+  async function submitAssistantQuestion(event) {
+    event.preventDefault();
+    if (!state.tripId) { showToast('Plan or open a saved trip before asking a question.'); return; }
+    const input = $('assistant-question');
+    const question = input.value.trim();
+    if (question.length < 2) return;
+    const send = $('assistant-send');
+    send.disabled = true;
+    input.disabled = true;
+    appendAssistantMessage('user', question);
+    const history = state.assistantHistory.slice(-8);
+    state.assistantHistory.push({ role: 'user', content: question });
+    input.value = '';
+    const pending = document.createElement('div'); pending.className = 'assistant-message assistant-bot assistant-pending'; pending.textContent = 'Checking the trip evidence…'; $('assistant-messages').append(pending);
+    try {
+      const data = await api(`/trips/${encodeURIComponent(state.tripId)}/ask`, { method: 'POST', body: JSON.stringify({ question, history }) });
+      pending.remove();
+      appendAssistantMessage('assistant', data.answer, data.grounding || []);
+      state.assistantHistory.push({ role: 'assistant', content: String(data.answer || '').slice(0, 1000) });
+      state.assistantHistory = state.assistantHistory.slice(-8);
+      $('assistant-footnote').textContent = data.provider === 'openrouter'
+        ? `Optional AI wording · ${data.model || 'OpenRouter'} · ${data.note || 'Verify material details against linked sources.'}`
+        : `Grounded local answer · ${data.note || 'No generative model was used.'}`;
+    } catch (error) {
+      pending.remove();
+      appendAssistantMessage('assistant', `I couldn't retrieve this trip's stored evidence: ${error.message}. The trip may have expired from the server's temporary database.`);
+      state.assistantHistory.pop();
+    } finally {
+      send.disabled = false; input.disabled = false; input.focus();
+    }
+  }
+
+  function bindWorkspaceNavigation() {
+    document.querySelectorAll('[data-workspace]').forEach((button) => button.addEventListener('click', () => setWorkspaceView(button.dataset.workspace)));
+    document.querySelectorAll('[data-topnav]').forEach((button) => button.addEventListener('click', () => {
+      const target = button.dataset.topnav;
+      setWorkspaceView(target === 'explore' ? 'routes' : 'dashboard');
+      if (target === 'explore' && state.result) window.setTimeout(() => $('candidate-heading').scrollIntoView({ behavior: 'smooth', block: 'start' }), 90);
+    }));
+    $('workspace-new-trip').addEventListener('click', exitWorkspace);
+    $('workspace-exit').addEventListener('click', exitWorkspace);
+    $('workspace-brand').addEventListener('click', (event) => { event.preventDefault(); exitWorkspace(); });
+    $('workspace-back-to-top').addEventListener('click', () => $('results').scrollIntoView({ behavior: 'smooth', block: 'start' }));
+    $('landing-saved-link').addEventListener('click', (event) => { event.preventDefault(); enterWorkspace('saved'); });
+    $('workspace-search').addEventListener('input', (event) => {
+      state.candidateSearch = event.target.value.trim().toLocaleLowerCase();
+      if (state.result) renderCandidateExplorer(state.result, state.activeAlternative);
+      if (state.candidateSearch && state.workspaceView === 'dashboard') setWorkspaceView('routes');
+    });
+    $('save-trip').addEventListener('click', saveCurrentTrip);
+    $('journal-form').addEventListener('submit', saveJournalNote);
+    $('assistant-form').addEventListener('submit', submitAssistantQuestion);
+  }
 
   function renderMetrics(result, alternative) {
     const route = result.route, m = alternative?.metrics || {};
@@ -273,8 +516,17 @@
     $('empty-stops').hidden = stops.length > 0;
     $('stop-list').innerHTML = stops.map((stop, index) => {
       const hoursLabel = stop.hours_status === 'open' ? 'Mapped hours: open at estimated ETA' : stop.hours_status === 'closed' ? 'Mapped hours: closed at estimated ETA' : 'Opening hours: unknown';
-      const source = stop.source_url && /^https?:\/\//i.test(stop.source_url) ? `<a class="stop-source" href="${escapeAttr(stop.source_url)}" target="_blank" rel="noreferrer">View map source ↗</a>` : '<span class="stop-source muted">No external place source available in this record</span>';
-      return `<article class="stop-item stop-card"><div class="stop-index">${String(index+1).padStart(2,'0')}</div><div class="stop-content"><div class="stop-title-row"><h4>${escapeHtml(stop.name)}</h4><span class="place-category">${escapeHtml(stop.category.replaceAll('_',' '))}</span></div><p class="stop-facts">${Math.round(stop.corridor_distance_m)} m from route · ${escapeHtml(hoursLabel)}</p><details class="why-details"><summary>Why this place?</summary><ul>${(stop.explanation || []).map((reason) => `<li>${escapeHtml(reason)}</li>`).join('')}<li>Cultural signal is a category/tag heuristic, not a verified cultural assessment.</li></ul><div class="evidence-mini"><span>Mapped metadata coverage</span><b>${Math.round(Number(stop.metadata_completeness || 0) * 100)}%</b></div><div class="evidence-track"><i style="width:${Math.max(0, Math.min(100, Number(stop.metadata_completeness || 0) * 100))}%"></i></div><p class="data-caveat">Metadata coverage indicates field completeness only; it is not factual confidence.</p></details>${source}</div><div class="stop-meta"><b>${stop.arrival_at ? new Date(stop.arrival_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : 'ETA —'}</b><small>${stop.stop_duration_minutes} min stop</small></div></article>`;
+      const sourceUrl = safeHttpsUrl(stop.source_url);
+      const articleUrl = safeHttpsUrl(stop.wikipedia_url, ['en.wikipedia.org']);
+      const imageUrl = trustedImageUrl(stop.image_url);
+      const source = sourceUrl ? `<a class="stop-source" href="${escapeAttr(sourceUrl)}" target="_blank" rel="noreferrer">View map source ↗</a>` : '<span class="stop-source muted">No external place source available in this record</span>';
+      const image = imageUrl
+        ? `<img class="stop-story-image" src="${escapeAttr(imageUrl)}" alt="${escapeAttr(stop.name)} — image linked through the place's mapped Wikipedia reference" loading="lazy" referrerpolicy="no-referrer"/>`
+        : '<div class="stop-story-placeholder" aria-hidden="true">⌂</div>';
+      const story = stop.story_summary
+        ? `<div class="stop-story-copy">${escapeHtml(stop.story_summary)}${articleUrl ? `<br/><a href="${escapeAttr(articleUrl)}" target="_blank" rel="noreferrer">Read source context ↗</a>` : ''}<small class="image-credit">${escapeHtml(stop.image_attribution || stop.story_source || 'Source-linked article context')}</small></div>`
+        : `<div class="stop-story-copy">No linked article context or licensed image is available for this mapped place. Rahgir will not invent a local story.</div>`;
+      return `<article class="stop-item stop-card"><div class="stop-index">${String(index+1).padStart(2,'0')}</div><div class="stop-content"><div class="stop-title-row"><h4>${escapeHtml(stop.name)}</h4><span class="place-category">${escapeHtml(String(stop.category || 'place').replaceAll('_',' '))}</span></div><p class="stop-facts">${Math.round(Number(stop.corridor_distance_m || 0))} m from route · ${escapeHtml(hoursLabel)}</p><div class="stop-story">${image}${story}</div><details class="why-details"><summary>Why this place?</summary><ul>${(stop.explanation || []).map((reason) => `<li>${escapeHtml(reason)}</li>`).join('')}<li>Cultural signal is a category/tag heuristic, not a verified cultural assessment.</li></ul><div class="evidence-mini"><span>Mapped metadata coverage</span><b>${Math.round(Number(stop.metadata_completeness || 0) * 100)}%</b></div><div class="evidence-track"><i style="width:${Math.max(0, Math.min(100, Number(stop.metadata_completeness || 0) * 100))}%"></i></div><p class="data-caveat">Metadata coverage indicates field completeness only; it is not factual confidence.</p></details>${source}</div><div class="stop-meta"><b>${stop.arrival_at ? new Date(stop.arrival_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : 'ETA —'}</b><small>${Number(stop.stop_duration_minutes || 0)} min stop</small></div></article>`;
     }).join('');
   }
 
@@ -290,7 +542,7 @@
   function renderCandidateExplorer(result, alternative) {
     const assessments = result.candidate_assessments || (result.candidates || []).map((x) => ({...x, individual_status:'unknown', individual_reasons:['Individual route-fit assessment is unavailable.'], caveats:[]}));
     const selectedIds = new Set(alternative?.stop_ids || (alternative?.stops || []).map((x) => x.id));
-    const filtered = assessments.filter((item) => state.candidateFilter === 'all' || candidateGroup(item.category) === state.candidateFilter);
+    const filtered = assessments.filter((item) => (state.candidateFilter === 'all' || candidateGroup(item.category) === state.candidateFilter) && (!state.candidateSearch || `${item.name} ${item.category} ${item.story_summary || ''}`.toLocaleLowerCase().includes(state.candidateSearch)));
     $('candidate-count').textContent = `${filtered.length} of ${assessments.length} mapped places`;
     $('candidate-empty').hidden = filtered.length > 0;
     $('candidate-grid').innerHTML = filtered.map((item) => {
@@ -299,8 +551,12 @@
       const status = selected ? 'In this itinerary' : blocked ? 'Outside current limits' : item.individual_status === 'eligible' ? 'Individually feasible' : 'Not assessed';
       const reasonItems = selected ? (item.why_it_might_fit || []) : blocked ? (item.individual_reasons || []) : ['This place passes the single-stop checks, but is not part of the currently selected combination. Another Pareto option may include it.'];
       const detour = item.single_stop_detour_minutes == null ? 'Detour unavailable' : `+${Math.round(item.single_stop_detour_minutes)} min single-stop drive`;
-      const source = item.source_url && /^https?:\/\//i.test(item.source_url) ? `<a href="${escapeAttr(item.source_url)}" target="_blank" rel="noreferrer">Source ↗</a>` : '<span>No source link</span>';
-      return `<article class="candidate-card ${selected?'selected':''} ${blocked?'blocked':''}"><div class="candidate-card-top"><span class="candidate-status ${selected?'good':blocked?'warning':'neutral'}">${escapeHtml(status)}</span><span class="candidate-category">${escapeHtml(item.category || 'place')}</span></div><h4>${escapeHtml(item.name)}</h4><p class="candidate-metric">${escapeHtml(detour)} ${item.single_stop_detour_km == null ? '' : `· +${Number(item.single_stop_detour_km).toFixed(1)} km`}</p><details><summary>${selected ? 'Why this stop?' : 'Why / why not?'}</summary><ul>${reasonItems.map((reason) => `<li>${escapeHtml(reason)}</li>`).join('')}</ul>${(item.caveats || []).map((caveat) => `<p class="candidate-caveat">${escapeHtml(caveat)}</p>`).join('')}</details><div class="candidate-card-foot">${source}<button type="button" data-locate="${escapeAttr(item.id)}">Show on map ↗</button></div></article>`;
+      const sourceUrl = safeHttpsUrl(item.source_url);
+      const articleUrl = safeHttpsUrl(item.wikipedia_url, ['en.wikipedia.org']);
+      const imageUrl = trustedImageUrl(item.image_url);
+      const source = sourceUrl ? `<a href="${escapeAttr(sourceUrl)}" target="_blank" rel="noreferrer">Map source ↗</a>` : '<span>No source link</span>';
+      const image = imageUrl ? `<img class="candidate-card-image" src="${escapeAttr(imageUrl)}" alt="${escapeAttr(item.name)}" loading="lazy" referrerpolicy="no-referrer"/>` : '<div class="candidate-image-placeholder" aria-hidden="true">⌂</div>';
+      return `<article class="candidate-card ${selected?'selected':''} ${blocked?'blocked':''}">${image}<div class="candidate-card-top"><span class="candidate-status ${selected?'good':blocked?'warning':'neutral'}">${escapeHtml(status)}</span><span class="candidate-category">${escapeHtml(item.category || 'place')}</span></div><h4>${escapeHtml(item.name)}</h4><p class="candidate-metric">${escapeHtml(detour)} ${item.single_stop_detour_km == null ? '' : `· +${Number(item.single_stop_detour_km).toFixed(1)} km`}</p><details><summary>${selected ? 'Why this stop?' : 'Why / why not?'}</summary><ul>${reasonItems.map((reason) => `<li>${escapeHtml(reason)}</li>`).join('')}</ul>${(item.caveats || []).map((caveat) => `<p class="candidate-caveat">${escapeHtml(caveat)}</p>`).join('')}</details><div class="candidate-card-foot">${source}${articleUrl ? `<a href="${escapeAttr(articleUrl)}" target="_blank" rel="noreferrer">Story ↗</a>` : ''}<button type="button" data-locate="${escapeAttr(item.id)}">Show on map ↗</button></div></article>`;
     }).join('');
     $('candidate-grid').querySelectorAll('[data-locate]').forEach((button) => button.addEventListener('click', () => {
       const marker = state.candidateMarkers[button.dataset.locate];
@@ -348,8 +604,14 @@
     state.tripId = wrapper.trip_id || result.trip_id || null;
     state.result = result;
     state.activeAlternative = result.selected_alternative || result.alternatives?.[0] || null;
-    $('results').hidden = false;
-    $('results').scrollIntoView({behavior:'smooth', block:'start'});
+    state.assistantHistory = [];
+    $('assistant-messages').innerHTML = '';
+    appendAssistantMessage('assistant', 'I can explain the selected stops, estimated arrival times, route trade-offs and mapped evidence. I will say when a detail is missing.');
+    $('assistant-footnote').textContent = 'Grounded local mode · No API key required. Optional OpenRouter integration can be enabled by configuring the server environment.';
+    $('save-trip').textContent = state.savedTrips.some((item) => item.tripId === state.tripId) ? 'Saved ✓' : 'Save journey ☆';
+    $('workspace-route-name').textContent = `${result.origin.label.split(',')[0]} → ${result.destination.label.split(',')[0]}`;
+    enterWorkspace('dashboard');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
     $('results-subtitle').textContent = `${result.origin.label.split(',')[0]} to ${result.destination.label.split(',')[0]} · ${result.candidate_count} mapped corridor candidates examined`;
     $('demo-banner').hidden = result.mode !== 'synthetic_demo';
     renderAlternatives(result.alternatives, state.activeAlternative);
@@ -476,6 +738,10 @@
   }
 
   function init() {
+    const savedStorage = readStorage(SAVED_KEY, []);
+    const journalStorage = readStorage(JOURNAL_KEY, {});
+    state.savedTrips = Array.isArray(savedStorage) ? savedStorage.filter((item) => item && typeof item.tripId === 'string') : [];
+    state.journalEntries = journalStorage && typeof journalStorage === 'object' && !Array.isArray(journalStorage) ? journalStorage : {};
     setToday();
     updateDiscoveryDial(Number($('discovery-bias').value));
     checkHealth(); loadResearch();
@@ -495,6 +761,10 @@
     }));
     $('whatif-budget').addEventListener('input', (e) => $('whatif-value').textContent = e.target.value);
     document.querySelectorAll('[data-pref]').forEach((input) => input.addEventListener('input', () => input.parentElement.querySelector('b').textContent = input.value));
+    document.querySelectorAll('[data-vibe]').forEach((button) => button.addEventListener('click', () => {
+      const active = !button.classList.contains('active');
+      button.classList.toggle('active', active); button.setAttribute('aria-pressed', String(active)); applyVibePreferences();
+    }));
     $('whatif-button').addEventListener('click', runWhatIf);
     $('share-trip').addEventListener('click', shareTrip);
     $('export-trip').addEventListener('click', () => { if (state.tripId) window.open(`${API}/trips/${state.tripId}/export.pdf`, '_blank', 'noopener'); });
@@ -507,6 +777,8 @@
     $('report-form').addEventListener('submit', submitReport);
     $('fit-map').addEventListener('click', () => { if (state.map && state.result) { const coords = state.result.route.selected_geometry || state.result.route.geometry; if (coords?.length) state.map.fitBounds(L.latLngBounds(coords.map(([lon,lat])=>[lat,lon])).pad(.12)); } });
     window.addEventListener('resize', () => { if (state.map) state.map.invalidateSize(); });
+    bindWorkspaceNavigation();
+    renderSavedTrips();
   }
 
   document.addEventListener('DOMContentLoaded', init);

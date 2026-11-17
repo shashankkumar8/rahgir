@@ -1,5 +1,26 @@
 # Rahgir verification report
 
+**Current release:** 0.2.0  
+**Current verification date:** 17 November 2026 (workspace and trip-companion upgrade)
+
+## Current v2 verification
+
+Commands executed from the repository root:
+
+- `PYTHONPATH=backend pytest -q` — **49 passed in 11.83 seconds; 0 failed; 0 skipped**.
+- `node --check backend/app/static/app.js` — passed.
+- `python -m compileall -q backend/app tests scripts/browser_smoke.py` — passed.
+- `bash -n scripts/run_local.sh scripts/run_research.sh` — passed.
+- `git diff --check` — passed.
+- `python scripts/browser_smoke.py` — passed the landing form, synthetic result and explicit warning, workspace shell, moved map card, three Pareto alternatives, browser-local save/open, journal note, trip assistant response, candidate filter and search checks; no browser console/page errors; 390 px viewport had `document.body.scrollWidth == 390`.
+
+The current smoke harness serves the actual static HTML/CSS/JavaScript, routes API calls to FastAPI's test client, and intercepts external CDN/provider calls. Its localStorage shim is test-only. The smoke run therefore checks the UI interactions and explicit fallback behaviour, not live map tile rendering or external provider uptime.
+
+The optional OpenRouter request path is covered with a stubbed HTTP client, including an assertion that saved trip evidence is sent as untrusted user-role data rather than a system instruction. Live model behaviour was not tested because no user API key was supplied. Wikipedia enrichment is tested with mocked HTTP responses and explicit OSM Wikipedia tags; external article/image availability is not claimed.
+
+---
+
+
 **Verification date:** 17 November 2026 (UX and what-if upgrade)  
 **Build scope:** local development/research prototype  
 **External network:** unavailable from the execution container; live provider calls not verified

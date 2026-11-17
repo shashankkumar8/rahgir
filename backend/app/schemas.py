@@ -85,3 +85,19 @@ class ErrorResponse(BaseModel):
 
 class RoutePreviewRequest(BaseModel):
     stop_ids: list[str] = Field(default_factory=list, max_length=8)
+
+
+class AskTripRequest(BaseModel):
+    question: str = Field(min_length=2, max_length=500)
+    history: list[dict[str, str]] = Field(default_factory=list, max_length=8)
+
+    @field_validator("history")
+    @classmethod
+    def validate_history(cls, value: list[dict[str, str]]) -> list[dict[str, str]]:
+        cleaned = []
+        for item in value:
+            role = item.get("role")
+            content = str(item.get("content", ""))[:1000]
+            if role in {"user", "assistant"} and content.strip():
+                cleaned.append({"role": role, "content": content})
+        return cleaned[-8:]

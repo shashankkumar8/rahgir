@@ -4,7 +4,7 @@ import asyncio
 import time
 from datetime import datetime, timezone
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 
 import httpx
 
@@ -40,6 +40,7 @@ _OSRM_GATE = RateGate(settings.public_provider_min_interval)
 _OVERPASS_GATE = RateGate(10.0)
 _GEOCODE_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 _POI_CACHE: dict[str, tuple[float, list[dict[str, Any]]]] = {}
+_WIKIPEDIA_CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 
 
 class ExternalProviders:
@@ -253,3 +254,66 @@ class ExternalProviders:
             })
         self._poi_cache[cache_key] = (time.monotonic() + 900, pois)
         return pois
+
+    async def enrich_pois(self, pois: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Attach optional context only when OSM explicitly names a Wikipedia page.
+
+        This does not search by place name: ambiguous names and fuzzy matches are
+        deliberately avoided. Provider failures leave the original OSM POI intact.
+        """
+        if not settings.wikipedia_enrichment or not pois:
+            return pois
+
+        semaphore = asyncio.Semaphore(3)
+
+        async def enrich(poi: dict[str, Any]) -> dict[str, Any]:
+            tags = poi.get("tags") if isinstance(poi.get("tags"), dict) else {}
+            wikipedia_ref = str(tags.get("wikipedia") or "").strip()
+            if not wikipedia_ref or ":" not in wikipedia_ref:
+                return poi
+            language, page = wikipedia_ref.split(":", 1)
+            if language.casefold() != "en" or not page.strip() or len(page) > 180:
+                return poi
+            title = page.replace("_", " ").strip()
+            cache_key = title.casefold()
+            cached = _WIKIPEDIA_CACHE.get(cache_key)
+            if cached and cached[0] > time.monotonic():
+                return {**poi, **cached[1]}
+
+            async with semaphore:
+                try:
+                    url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{quote(page, safe='')}"
+                    response = await self.client.get(
+                        url,
+                        headers={"Accept": "application/json", "User-Agent": settings.http_user_agent},
+                        timeout=8.0,
+                    )
+                    if response.status_code != 200:
+                        return poi
+                    data = response.json()
+                    extract = data.get("extract") if isinstance(data, dict) else None
+                    if not isinstance(extract, str) or not extract.strip():
+                        return poi
+                    image = data.get("thumbnail") if isinstance(data, dict) else None
+                    image_url = image.get("source") if isinstance(image, dict) else None
+                    if image_url:
+                        parsed = urlparse(image_url)
+                        if parsed.scheme != "https" or parsed.hostname not in {"upload.wikimedia.org"}:
+                            image_url = None
+                    page_url = (((data.get("content_urls") or {}).get("desktop") or {}).get("page") if isinstance(data, dict) else None)
+                    if not isinstance(page_url, str) or urlparse(page_url).scheme != "https" or urlparse(page_url).hostname not in {"en.wikipedia.org"}:
+                        page_url = f"https://en.wikipedia.org/wiki/{quote(page.replace(' ', '_'), safe='') }"
+                    enriched = {
+                        "story_summary": extract.strip()[:900],
+                        "wikipedia_url": page_url,
+                        "image_url": image_url,
+                        "image_attribution": "Image via Wikimedia Commons; open the linked article for source and licence details." if image_url else None,
+                        "story_source": "Wikipedia REST summary (linked by OpenStreetMap tag)",
+                    }
+                    _WIKIPEDIA_CACHE[cache_key] = (time.monotonic() + 86_400, enriched)
+                    return {**poi, **enriched}
+                except (httpx.HTTPError, ValueError, TypeError, KeyError):
+                    return poi
+
+        enriched = await asyncio.gather(*(enrich(poi) for poi in pois), return_exceptions=True)
+        return [item if isinstance(item, dict) else pois[index] for index, item in enumerate(enriched)]
